@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uvicorn main:app --host 0.0.0.0 --port 3001 --reload)",
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(taskkill /F /IM python.exe)"
+    ]
+  }
+}
