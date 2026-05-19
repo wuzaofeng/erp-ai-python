@@ -35,6 +35,7 @@ class ChatRequestBody(BaseModel):
     skillKey: Optional[str] = None
     skill: Optional[str] = Field(default=None, max_length=2000)
     history: Optional[list[dict]] = None  # 服务端 Memory 已替代，保留兼容
+    navIndex: Optional[str] = Field(default=None, max_length=5000, description="前端菜单导航索引")
 
 
 class SaveKeyRequest(BaseModel):
@@ -112,6 +113,7 @@ async def chat_endpoint(
             "model": body.model,
             "skillKey": body.skillKey,
             "skill": body.skill,
+            "navIndex": body.navIndex,
         }
 
         try:

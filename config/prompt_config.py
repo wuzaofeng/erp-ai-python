@@ -3,6 +3,7 @@ AI System Prompt 配置文件 - 对应 src/config/promptConfig.ts
 """
 from typing import Optional
 from config.table_catalog import ERP_TABLE_CATALOG
+from logger import logger
 
 # ===================== 2. AI 行为约束规则 =====================
 BEHAVIOR_RULES = """
@@ -94,6 +95,7 @@ def build_system_prompt(
     skill: Optional[str] = None,
     preference_prompt: Optional[str] = None,
     knowledge_prompt: Optional[str] = None,
+    nav_index: Optional[str] = None,
 ) -> str:
     """
     构造完整的 System Prompt
@@ -103,6 +105,22 @@ def build_system_prompt(
     skill_section = ""
     if skill:
         skill_section = f"\n## 当前技能/业务规则（优先级最高，必须严格遵守）\n{skill}\n"
+
+    nav_section = ""
+    if nav_index:
+        logger.info("Prompt", f"navIndex 已注入 | 长度={len(nav_index)} | 前100字符: {nav_index[:100]}")
+        nav_section = (
+            f"\n## 可跳转的 ERP 菜单（格式：页面名称:fFunCode[:可新增]）\n"
+            f"{nav_index}\n"
+            f"\n## 页面跳转规则（必须遵守）\n"
+            f"1. 当你通过 query_erp_list 查到数据后，如果该数据对应的业务模块在上方菜单中存在，"
+            f"**必须额外调用一次 trigger_actions 工具**，"
+            f"推送 action='navigate_query'（auto=true），"
+            f"params 传入 formCode（对应 fFunCode）、operation='view'、"
+            f"以及本次查询使用的相同 filters，让前端自动打开对应页面并带条件过滤。\n"
+            f"2. 用户明确要新增时：推送 action='navigate_query'，operation='add'，auto=false。\n"
+            f"3. navigate_query 与文字摘要回答同时进行，两者都要做。\n"
+        )
 
     preference_section = ""
     if preference_prompt:
@@ -122,6 +140,7 @@ def build_system_prompt(
         f"## 能力说明\n{capability_desc}\n\n"
         f"## 当前页面上下文\n用户正在浏览：{page_context or '未知页面'}\n"
         f"{skill_section}"
+        f"{nav_section}"
         f"## 可查询的数据表目录\n{ERP_TABLE_CATALOG}\n\n"
         f"## 输出格式规范（必须遵守）\n{OUTPUT_FORMAT}\n\n"
         f"## 行为规则（必须遵守）\n{BEHAVIOR_RULES}\n\n"

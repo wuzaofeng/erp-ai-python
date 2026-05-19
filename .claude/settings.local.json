@@ -4,7 +4,10 @@
       "Bash(uvicorn main:app --host 0.0.0.0 --port 3001 --reload)",
       "Bash(python *)",
       "Bash(pip install *)",
-      "Bash(taskkill /F /IM python.exe)"
+      "Bash(taskkill /F /IM python.exe)",
+      "Read(//c/WorkSpace/**)",
+      "Read(//c/WorkSpace/F02-ErpClient/**)",
+      "Bash(git add *)"
     ]
   }
 }

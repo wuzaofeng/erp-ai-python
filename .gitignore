@@ -33,3 +33,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# 运行时数据（向量库、SQLite WAL）
+data/

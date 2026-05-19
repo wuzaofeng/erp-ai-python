@@ -8,10 +8,29 @@ from langchain_core.tools import StructuredTool
 
 
 class ActionItem(BaseModel):
-    action: str = Field(description="操作类型：refresh=刷新表格, filter=带条件查询, navigate=跳转页面")
-    label: str = Field(description="按钮显示文字，如「刷新数据」「只看未完成」")
-    auto: bool = Field(default=False, description="是否自动触发，refresh 可设为 true，navigate 应设为 false")
-    params: Optional[dict[str, Any]] = Field(default=None, description="操作参数，filter 需传 filters 数组，navigate 需传 path")
+    action: str = Field(
+        description=(
+            "操作类型："
+            "refresh=刷新当前表格；"
+            "filter=在当前页面带条件重新查询；"
+            "navigate=仅跳转到目标页面（不带查询）；"
+            "navigate_query=跳转到目标页面并自动执行带条件查询（跨页跳转+查询场景使用此类型）"
+        )
+    )
+    label: str = Field(description="按钮显示文字，如「刷新数据」「查看供应商」「新增采购订单」")
+    auto: bool = Field(
+        default=False,
+        description="是否自动触发。refresh/navigate_query 可设为 true，navigate 应设为 false 让用户确认"
+    )
+    params: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "操作参数。"
+            "filter: {filters:[{field,op,value}]}；"
+            "navigate: {path:'/erp/...'}；"
+            "navigate_query: {formCode:'fFunCode值', operation:'view'或'add', filters:[{field,op,value}]}"
+        )
+    )
 
 
 class TriggerActionsInput(BaseModel):
@@ -19,9 +38,18 @@ class TriggerActionsInput(BaseModel):
 
 
 TRIGGER_ACTIONS_DESCRIPTION = (
-    "触发前端操作指令（如刷新表格、带条件重新查询、跳转页面）。"
-    "当用户说「刷新一下」「只看未完成的」「去采购订单页面」等操作性请求时调用此工具。"
-    "工具会将操作列表推送给前端，auto=true 的操作自动执行，所有操作都会渲染为可点击按钮。"
+    "触发前端操作指令（刷新表格、带条件查询、跳转页面）。\n"
+    "使用场景：\n"
+    "- 用户说「刷新一下」→ action=refresh, auto=true\n"
+    "- 用户说「只看未完成的」→ action=filter, params.filters=[...], auto=true\n"
+    "- 查询到业务数据后，菜单中存在对应页面 → 必须额外调用本工具推送 navigate_query，"
+    "auto=true，让前端自动打开该页面并带相同过滤条件，与文字摘要同时进行\n"
+    "- 用户说「去供应商页面查华为」→ action=navigate_query, params.formCode=对应fFunCode, "
+    "params.operation=view, params.filters=[{field,op,value}], auto=true\n"
+    "- 用户说「新增一个供应商」→ action=navigate_query, params.formCode=对应fFunCode, "
+    "params.operation=add, auto=false（新增需用户确认）\n"
+    "fFunCode 从系统提示的【可跳转的 ERP 菜单】中查找对应页面名称获取。\n"
+    "所有 action 都会渲染为可点击按钮，auto=true 的会立即自动执行。"
 )
 
 

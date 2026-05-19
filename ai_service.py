@@ -172,7 +172,8 @@ async def chat_with_ai(
 
     # ---- 4. 构造初始消息 ----
     system_prompt_text = build_system_prompt(
-        request.get("pageContext"), resolved_skill, preference_prompt, knowledge_prompt
+        request.get("pageContext"), resolved_skill, preference_prompt, knowledge_prompt,
+        nav_index=request.get("navIndex"),
     )
     messages: list[BaseMessage] = [
         SystemMessage(content=system_prompt_text),
