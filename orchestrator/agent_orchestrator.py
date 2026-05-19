@@ -70,8 +70,6 @@ class AgentOrchestrator:
                 logger.ai("Orchestrator", f"TaskPlanner 生成 {len(plan.tasks)} 个子任务")
 
                 query_result_chunks: list[str] = []
-                for chunk in self.query_agent.execute(request["message"]).__aiter__():
-                    pass
                 async for chunk in self.query_agent.execute(request["message"]):
                     query_result_chunks.append(chunk) if not chunk.startswith("\x00") else None
                     yield chunk

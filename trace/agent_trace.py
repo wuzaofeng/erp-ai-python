@@ -82,7 +82,25 @@ class AgentTraceService:
             return
         trace.add_step(StepType.RETRY, f"Retry #{attempt}", input_data=reason)
 
-    def log_reflection(self, run_id: str, reason: str, adjustment: dict) -> None:
+    def log_route(self, run_id: str, result: dict) -> None:
+        trace = self._traces.get(run_id)
+        if not trace:
+            return
+        trace.add_step(
+            StepType.ROUTE,
+            "IntentRouter",
+            input_data=result.get("reasoning"),
+            output_data={"intent": result.get("intent"), "confidence": result.get("confidence")},
+            confidence=result.get("confidence"),
+        )
+
+    def log_agent(self, run_id: str, agent_name: str, input_data: Any, output_data: Any) -> None:
+        trace = self._traces.get(run_id)
+        if not trace:
+            return
+        trace.add_step(StepType.AGENT, agent_name, input_data=input_data, output_data=output_data)
+
+    def log_reflection(self, run_id: str, reason: str, adjustment: Optional[dict] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
@@ -90,7 +108,7 @@ class AgentTraceService:
             StepType.REFLECTION,
             "MetaCognition",
             input_data={"reason": reason},
-            output_data=adjustment,
+            output_data=adjustment or {},
         )
 
     def end_trace(self, run_id: str, status: str = "completed", error: Optional[str] = None) -> None:
