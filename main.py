@@ -32,6 +32,8 @@ from logger import logger
 from db import init_db
 from routes.ai import router as ai_router
 from routes.knowledge import router as knowledge_router
+from security.rate_limiter import limiter, rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 # ===================== 应用初始化 =====================
 
@@ -40,6 +42,9 @@ app = FastAPI(
     description="ERP 系统智能数据查询 API（Python 版）",
     version="2.0.0",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # CORS 配置（与 Node.js 版保持一致）
 app.add_middleware(

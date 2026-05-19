@@ -15,6 +15,9 @@ from pydantic import BaseModel, Field
 from ai_service import chat_with_ai, test_openrouter_key
 from key_service import save_user_key, get_user_key, has_user_key, delete_user_key, validate_key_format
 from logger import logger, start_timer
+from security.input_guard import input_guard
+from security.human_in_loop import human_in_loop
+from security.rate_limiter import limiter
 from config.skills import list_skills, get_skill_by_key, create_skill, update_skill, delete_skill
 from memory.conversation_memory import clear_history, get_memory_stats
 from memory.user_preference import clear_preference, get_preference
@@ -47,6 +50,7 @@ class SaveKeyRequest(BaseModel):
 # ===================== POST /api/ai/chat =====================
 
 @router.post("/chat")
+@limiter.limit("60/minute")
 async def chat_endpoint(
     body: ChatRequestBody,
     request: Request,
@@ -55,6 +59,14 @@ async def chat_endpoint(
     """主对话接口，支持流式输出（Server-Sent Events）"""
     if not x_user_id:
         raise HTTPException(status_code=400, detail="缺少用户 ID（X-User-Id header）")
+
+    guard_result = input_guard.check(body.message)
+    if guard_result.risk_level == "high":
+        logger.warn("Security", f"用户 {x_user_id} 输入被拦截 | 威胁: {guard_result.detected_threats}")
+        raise HTTPException(status_code=400, detail={
+            "error": "输入内容包含不安全内容，已被拦截",
+            "code": "INPUT_BLOCKED",
+        })
 
     user_id = x_user_id
     erp_cookie = request.headers.get("cookie", "")
@@ -328,3 +340,40 @@ def stats_endpoint():
 def clear_cache_endpoint():
     clear_all_cache()
     return {"success": True, "message": "ERP 查询缓存已清空"}
+
+
+# ===================== Human-in-Loop 审批 =====================
+
+class ApprovalDecisionBody(BaseModel):
+    approvalId: str
+    decision: str  # "approve" | "reject"
+    userId: str
+
+
+@router.post("/approve")
+def handle_approval_endpoint(body: ApprovalDecisionBody):
+    try:
+        approved = human_in_loop.process(body.approvalId, body.decision, body.userId)
+        return {"success": True, "approved": approved}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/approvals")
+def list_approvals_endpoint(
+    x_user_id: Optional[str] = Header(default=None, alias="x-user-id"),
+):
+    if not x_user_id:
+        raise HTTPException(status_code=400, detail="缺少用户 ID")
+    pending = human_in_loop.get_pending(x_user_id)
+    return {
+        "approvals": [
+            {
+                "approvalId": a.approval_id,
+                "action": a.action,
+                "details": a.details,
+                "createdAt": a.created_at.isoformat(),
+            }
+            for a in pending
+        ]
+    }
