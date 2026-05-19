@@ -29,7 +29,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from logger import logger
+from db import init_db
 from routes.ai import router as ai_router
+from routes.knowledge import router as knowledge_router
 
 # ===================== 应用初始化 =====================
 
@@ -48,8 +50,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 数据库初始化（幂等，重复执行无副作用）
+init_db()
+
 # 注册路由
 app.include_router(ai_router)
+app.include_router(knowledge_router)
 
 
 # ===================== 健康检查 =====================
@@ -57,6 +63,7 @@ app.include_router(ai_router)
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "erp-ai-python", "version": "2.0.0"}
+
 
 
 @app.get("/")

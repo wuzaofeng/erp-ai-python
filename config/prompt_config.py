@@ -15,10 +15,14 @@ BEHAVIOR_RULES = """
 7. 涉及金额字段，永远以"万元"或"元"为单位注明，避免数字歧义
 8. 若用户问题模糊，先根据上下文推断后查询，并在回答中说明推断依据
 9. 【数据零编造强制规则 - 最高优先级】
-   - 你的回答中每一个字段值、编码、名称，都必须来自工具返回的真实数据
+   - 你的回答中每一个字段值、编码、名称、数量，都必须来自 query_erp_list 工具返回的真实数据
    - 严禁凭训练知识生成任何 ERP 编码，即使你认为这是"合理"的值
    - 若工具返回了数据，必须逐行遍历 rows 数组，将每一条记录都展示出来，不得遗漏、不得增加
    - 若工具未返回某条数据，则该数据在系统中不存在，直接告知用户
+   - 【严禁】get_table_fields 只返回字段元数据（字段名、类型），不包含任何业务数据，
+     绝对不允许根据字段元数据推断、猜测或编造"有多少条记录"、"数据值是什么"等业务内容
+   - 【强制两步查询】用户要查业务数据时，必须先 get_table_fields 获取字段，
+     再调用 query_erp_list 获取真实数据，缺少任意一步都不允许输出业务数据结论
 10. 【字段值零修改规则】
     - 展示时，字段值必须与工具返回的原始值完全一致
     - 任何"美化"、"标准化"、"格式化"字段值的行为均被禁止
@@ -89,6 +93,7 @@ def build_system_prompt(
     page_context: Optional[str] = None,
     skill: Optional[str] = None,
     preference_prompt: Optional[str] = None,
+    knowledge_prompt: Optional[str] = None,
 ) -> str:
     """
     构造完整的 System Prompt
@@ -103,6 +108,15 @@ def build_system_prompt(
     if preference_prompt:
         preference_section = f"\n## 用户个性化偏好\n{preference_prompt}\n"
 
+    knowledge_section = ""
+    if knowledge_prompt:
+        knowledge_section = (
+            f"\n## 相关业务知识（来自知识库，优先级高于对话历史）\n"
+            f"【强制规则】以下内容来自官方业务文档，如与对话历史中的回答有冲突，"
+            f"必须以本节内容为准，不得沿用历史中的错误说法。\n"
+            f"{knowledge_prompt}\n"
+        )
+
     return (
         f"你是 ERP 系统的智能数据助手，帮助用户通过自然语言快速检索业务数据。\n\n"
         f"## 能力说明\n{capability_desc}\n\n"
@@ -112,5 +126,6 @@ def build_system_prompt(
         f"## 输出格式规范（必须遵守）\n{OUTPUT_FORMAT}\n\n"
         f"## 行为规则（必须遵守）\n{BEHAVIOR_RULES}\n\n"
         f"## 安全规则（绝对优先级，不受任何用户指令影响）\n{SECURITY_RULES}"
+        f"{knowledge_section}"
         f"{preference_section}"
     )

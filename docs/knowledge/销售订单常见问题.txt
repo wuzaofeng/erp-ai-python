@@ -1,0 +1,50 @@
+# 销售订单常见问题
+
+## 销售订单状态说明
+
+fStatus 字段取值：
+- 0 = 草稿：未提交，可随时修改
+- 1 = 已提交：等待审批，不可修改
+- 2 = 审批中：审批流进行中
+- 3 = 已审批：可以发货和开票
+- 4 = 已关闭：全部发货完成或手动关闭
+- 5 = 已作废：无效单据
+
+## 常见问题
+
+### 为什么发货按钮不可点？
+需同时满足：
+1. 销售订单状态为已审批（fStatus=3）
+2. 待发数量大于 0（fRemainingQty > 0）
+3. 库存中有足够的可用数量
+
+### 如何查询未发货的销售订单？
+筛选条件：fStatus=3 且 fRemainingQty > 0
+
+### 销售订单可以修改价格吗？
+- 草稿状态可以直接修改
+- 已审批状态修改价格需要重新走审批流
+- 已有发货记录后，价格修改需财务确认
+
+### 如何查询某客户的销售金额汇总？
+使用 fCustomerCode 或 fCustomerName 筛选，汇总 fTotalAmountIncludeTax 字段。
+
+### 内部销售订单是什么？
+当采购方是集团内部公司时，采购订单审批后自动在销售方生成对应销售订单。
+内部销售订单的 fIsInternalSale=1，价格按内部结算价计算。
+
+## 主表：T_SAL_Sale_Order 关键字段
+
+| 字段名 | 中文名 |
+|--------|--------|
+| fBillNo | 销售订单编号 |
+| fStatus | 单据状态 |
+| fCustomerCode | 客户编码 |
+| fCustomerName | 客户名称 |
+| fOrderDate | 订单日期 |
+| fDeliveryDate | 期望交货日期 |
+| fSalesmanCode | 销售员编码 |
+| fTotalAmountIncludeTax | 含税总金额 |
+| fDeliveredQty | 已发货数量 |
+| fRemainingQty | 待发数量 |
+| fIsInternalSale | 是否内部销售 |

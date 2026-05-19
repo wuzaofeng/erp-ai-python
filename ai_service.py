@@ -30,6 +30,7 @@ from erp_client import get_field_layout
 from rag.context_builder import build_context, RawErpData
 from memory.conversation_memory import get_history, append_user_message, append_assistant_message
 from memory.user_preference import get_preference_prompt, update_preference, QueryInfo
+from vector.knowledge_base import build_knowledge_prompt
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini")
 MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "3"))
@@ -156,9 +157,10 @@ async def chat_with_ai(
             resolved_skill = auto_matched.rule
             logger.ai("Skill", f"按页面自动匹配技能 [{auto_matched.key}]: {auto_matched.name}")
 
-    # ---- 2. 读取服务端 Memory 和用户偏好 ----
+    # ---- 2. 读取服务端 Memory、用户偏好、知识库 ----
     history_messages = get_history(user_id)
     preference_prompt = get_preference_prompt(user_id)
+    knowledge_prompt = build_knowledge_prompt(request["message"])
     logger.ai(
         "Memory",
         f"读取历史 | userId={user_id} | 历史轮数={len(history_messages) // 2} | 有偏好={bool(preference_prompt)}",
@@ -170,7 +172,7 @@ async def chat_with_ai(
 
     # ---- 4. 构造初始消息 ----
     system_prompt_text = build_system_prompt(
-        request.get("pageContext"), resolved_skill, preference_prompt
+        request.get("pageContext"), resolved_skill, preference_prompt, knowledge_prompt
     )
     messages: list[BaseMessage] = [
         SystemMessage(content=system_prompt_text),
@@ -187,6 +189,7 @@ async def chat_with_ai(
     # ---- 5. Agent Loop ----
     used_model = model_name
     tools_were_called = False
+    query_erp_called = False   # 是否真正调用了 query_erp_list 或 search_erp_global
     accumulated_answer: list[str] = []
     called_tool_args: list[dict] = []
 
@@ -209,8 +212,22 @@ async def chat_with_ai(
 
         # ---- 无 tool calls → AI 直接回答 ----
         if not tool_calls:
+            text = extract_text(ai_response.content)
+            # 如果 AI 调用了 get_table_fields 但没有调用 query_erp_list，
+            # 说明它可能在用字段元数据编造业务数据，强制要求重新查询
+            if tools_were_called and not query_erp_called and round_n < MAX_TOOL_ROUNDS:
+                logger.warn(
+                    "LangChain",
+                    f"第 {round_n} 轮：AI 只调了 get_table_fields 就给出结论，强制要求调用 query_erp_list",
+                )
+                messages.append(ai_response)
+                messages.append(HumanMessage(content=(
+                    "【系统强制提示】你只查询了字段列表（get_table_fields），"
+                    "但字段列表不包含任何业务数据，不能据此得出任何业务结论。"
+                    "请立即调用 query_erp_list 工具查询真实数据，然后再回答用户问题。"
+                )))
+                continue
             if not tools_were_called:
-                text = extract_text(ai_response.content)
                 if text:
                     logger.ai("LangChain", f"第 {round_n} 轮直接回答 | 总字符={len(text)}")
                     accumulated_answer.append(text)
@@ -291,6 +308,17 @@ async def chat_with_ai(
                 raw_tool_result = json.dumps({"error": "工具执行失败，请重新提问"})
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
+            if tool_name in ("query_erp_list", "search_erp_global"):
+                query_erp_called = True
+
+            # ---- trigger_actions 工具：直接转发给前端 ----
+            if tool_name == "trigger_actions" and raw_tool_result.startswith("\x00ACTION_DATA:"):
+                yield raw_tool_result
+                messages.append(ToolMessage(
+                    content=json.dumps({"status": "actions_pushed"}),
+                    tool_call_id=tool_call_id,
+                ))
+                continue
 
             # ---- RAG 处理 ----
             parsed = parse_tool_result(raw_tool_result)

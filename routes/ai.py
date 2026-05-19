@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from ai_service import chat_with_ai, test_openrouter_key
 from key_service import save_user_key, get_user_key, has_user_key, delete_user_key, validate_key_format
 from logger import logger, start_timer
-from config.skills import list_skills, get_skill_by_key
+from config.skills import list_skills, get_skill_by_key, create_skill, update_skill, delete_skill
 from memory.conversation_memory import clear_history, get_memory_stats
 from memory.user_preference import clear_preference, get_preference
 from cache.query_cache import get_cache_stats, clear_all_cache
@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/ai")
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini")
 ERP_DATA_PREFIX = "\x00ERP_DATA:"
+ACTION_DATA_PREFIX = "\x00ACTION_DATA:"
 
 # ===================== 请求体 Schema =====================
 
@@ -98,6 +99,13 @@ async def chat_endpoint(
                 "data": data,
             }, ensure_ascii=False) + "\n\n"
 
+        def sse_action(actions: list) -> str:
+            return "data: " + json.dumps({
+                "id": "erp-ai",
+                "object": "chat.action",
+                "actions": actions,
+            }, ensure_ascii=False) + "\n\n"
+
         request_dict = {
             "message": body.message,
             "pageContext": body.pageContext,
@@ -125,6 +133,16 @@ async def chat_endpoint(
                         )
                     except json.JSONDecodeError:
                         logger.warn("Chat", "erp.data 事件 JSON 解析失败，已跳过")
+                    continue
+                if chunk.startswith(ACTION_DATA_PREFIX):
+                    try:
+                        raw_json = chunk[len(ACTION_DATA_PREFIX):]
+                        parsed = json.loads(raw_json)
+                        actions = parsed.get("actions", [])
+                        yield sse_action(actions)
+                        logger.info("Chat", f"已推送 chat.action | actions={len(actions)}")
+                    except json.JSONDecodeError:
+                        logger.warn("Chat", "chat.action 事件 JSON 解析失败，已跳过")
                     continue
                 yield sse_chunk(chunk)
 
@@ -195,7 +213,25 @@ def delete_key_endpoint(userId: str = Query(...)):
     return {"success": True, "message": "Key 已删除"}
 
 
-# ===================== GET /api/ai/skills =====================
+# ===================== Skills CRUD =====================
+
+class SkillBody(BaseModel):
+    key: str
+    name: str
+    description: str = ""
+    rule: str
+    pages: list[str] = []
+    priority: int = 0
+
+
+class SkillUpdateBody(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    rule: Optional[str] = None
+    pages: Optional[list[str]] = None
+    priority: Optional[int] = None
+    enabled: Optional[bool] = None
+
 
 @router.get("/skills")
 def list_skills_endpoint():
@@ -208,6 +244,30 @@ def get_skill_endpoint(skill_key: str):
     if not skill:
         raise HTTPException(status_code=404, detail=f"技能 \"{skill_key}\" 不存在")
     return {"skill": {"key": skill.key, "name": skill.name, "description": skill.description, "rule": skill.rule}}
+
+
+@router.post("/skills")
+def create_skill_endpoint(body: SkillBody):
+    skill_id = create_skill(
+        key=body.key, name=body.name, description=body.description,
+        rule=body.rule, pages=body.pages, priority=body.priority,
+    )
+    return {"success": True, "id": skill_id}
+
+
+@router.put("/skills/{skill_id}")
+def update_skill_endpoint(skill_id: int, body: SkillUpdateBody):
+    updates = body.dict(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="没有可更新的字段")
+    update_skill(skill_id, **updates)
+    return {"success": True}
+
+
+@router.delete("/skills/{skill_id}")
+def delete_skill_endpoint(skill_id: int):
+    delete_skill(skill_id)
+    return {"success": True}
 
 
 # ===================== DELETE /api/ai/memory =====================

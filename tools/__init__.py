@@ -20,6 +20,7 @@ from typing import Callable, Any, Literal
 from tools.common_query import create_common_query_tool, COMMON_QUERY_DESCRIPTION
 from tools.table_fields import create_table_fields_tool, TABLE_FIELDS_DESCRIPTION
 from tools.global_search import create_global_search_tool, GLOBAL_SEARCH_DESCRIPTION
+from tools.trigger_actions import create_trigger_actions_tool, TRIGGER_ACTIONS_DESCRIPTION
 
 
 # ===================== 工具元数据注册表 =====================
@@ -59,6 +60,15 @@ TOOL_REGISTRY: list[ToolMeta] = [
         category="query",
         auto_prompt=True,
         factory=lambda cookie, auth, uid="": create_common_query_tool(cookie, auth, uid),
+    ),
+
+    # ---- 前端操作触发（刷新/过滤/跳转）----
+    ToolMeta(
+        name="trigger_actions",
+        description=TRIGGER_ACTIONS_DESCRIPTION,
+        category="other",
+        auto_prompt=False,
+        factory=lambda cookie, auth, uid="": create_trigger_actions_tool(),
     ),
 ]
 

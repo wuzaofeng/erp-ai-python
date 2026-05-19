@@ -1,8 +1,12 @@
 """
-预设技能注册表 - 对应 src/config/skills.ts
+Skills 管理 - 优先从 SQLite 读取，库为空时自动迁移硬编码数据
 """
+import json
+import time
 from dataclasses import dataclass, field
 from typing import Optional
+
+from db import get_conn
 
 
 @dataclass
@@ -12,11 +16,13 @@ class SkillConfig:
     description: str
     rule: str
     match_pages: list[str] = field(default_factory=list)
+    priority: int = 0
+    enabled: bool = True
 
 
-# ===================== 预设技能注册表 =====================
+# ===================== 硬编码默认技能（首次迁移用）=====================
 
-SKILL_REGISTRY: list[SkillConfig] = [
+_DEFAULT_SKILLS: list[SkillConfig] = [
     SkillConfig(
         key="employee-simple",
         name="员工简洁视图",
@@ -114,32 +120,125 @@ SKILL_REGISTRY: list[SkillConfig] = [
 ]
 
 
-# ===================== 工具函数 =====================
+# ===================== 数据库操作 =====================
 
-def get_skill_by_key(key: str) -> Optional[SkillConfig]:
-    """通过 key 查找技能配置"""
-    return next((s for s in SKILL_REGISTRY if s.key == key), None)
+def _migrate_defaults() -> None:
+    """首次启动时将硬编码技能写入数据库"""
+    conn = get_conn()
+    with conn:
+        for s in _DEFAULT_SKILLS:
+            conn.execute("""
+                INSERT OR IGNORE INTO skills (key, name, description, rule, pages, priority, enabled, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+            """, (s.key, s.name, s.description, s.rule, json.dumps(s.match_pages), s.priority, time.time()))
+    conn.close()
 
 
-def get_skill_by_page(page_context: str) -> Optional[SkillConfig]:
-    """通过页面路由自动匹配技能"""
-    if not page_context:
-        return None
-    page_lower = page_context.lower()
-    return next(
-        (s for s in SKILL_REGISTRY if any(p.lower() in page_lower for p in s.match_pages)),
-        None
+def _row_to_skill(row) -> SkillConfig:
+    return SkillConfig(
+        key=row["key"],
+        name=row["name"],
+        description=row["description"],
+        rule=row["rule"],
+        match_pages=json.loads(row["pages"]),
+        priority=row["priority"],
+        enabled=bool(row["enabled"]),
     )
 
 
+def _get_all_enabled() -> list[SkillConfig]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM skills WHERE enabled=1 ORDER BY priority DESC, id ASC"
+    ).fetchall()
+    conn.close()
+    if not rows:
+        _migrate_defaults()
+        return [s for s in _DEFAULT_SKILLS if s.enabled]
+    return [_row_to_skill(r) for r in rows]
+
+
+# ===================== 公开查询接口（供 ai_service.py 调用）=====================
+
+def get_skill_by_key(key: str) -> Optional[SkillConfig]:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM skills WHERE key=? AND enabled=1", (key,)
+    ).fetchone()
+    conn.close()
+    return _row_to_skill(row) if row else None
+
+
+def get_skill_by_page(page_context: str) -> Optional[SkillConfig]:
+    if not page_context:
+        return None
+    page_lower = page_context.lower()
+    for skill in _get_all_enabled():
+        if any(p.lower() in page_lower for p in skill.match_pages):
+            return skill
+    return None
+
+
 def list_skills() -> list[dict]:
-    """获取所有技能的简要信息（用于前端展示）"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM skills ORDER BY priority DESC, id ASC"
+    ).fetchall()
+    conn.close()
+    if not rows:
+        _migrate_defaults()
+        rows = get_conn().execute(
+            "SELECT * FROM skills ORDER BY priority DESC, id ASC"
+        ).fetchall()
     return [
         {
-            "key": s.key,
-            "name": s.name,
-            "description": s.description,
-            "matchPages": s.match_pages,
+            "id": r["id"],
+            "key": r["key"],
+            "name": r["name"],
+            "description": r["description"],
+            "matchPages": json.loads(r["pages"]),
+            "priority": r["priority"],
+            "enabled": bool(r["enabled"]),
+            "updatedAt": r["updated_at"],
         }
-        for s in SKILL_REGISTRY
+        for r in rows
     ]
+
+
+# ===================== CRUD（供管理接口调用）=====================
+
+def create_skill(key: str, name: str, description: str, rule: str,
+                 pages: list[str], priority: int = 0) -> int:
+    conn = get_conn()
+    with conn:
+        cur = conn.execute("""
+            INSERT INTO skills (key, name, description, rule, pages, priority, enabled, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+        """, (key, name, description, rule, json.dumps(pages), priority, time.time()))
+    conn.close()
+    return cur.lastrowid
+
+
+def update_skill(skill_id: int, **kwargs) -> bool:
+    allowed = {"name", "description", "rule", "pages", "priority", "enabled"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    if not updates:
+        return False
+    if "pages" in updates:
+        updates["pages"] = json.dumps(updates["pages"])
+    updates["updated_at"] = time.time()
+    fields = ", ".join(f"{k}=?" for k in updates)
+    values = list(updates.values()) + [skill_id]
+    conn = get_conn()
+    with conn:
+        conn.execute(f"UPDATE skills SET {fields} WHERE id=?", values)
+    conn.close()
+    return True
+
+
+def delete_skill(skill_id: int) -> bool:
+    conn = get_conn()
+    with conn:
+        conn.execute("DELETE FROM skills WHERE id=?", (skill_id,))
+    conn.close()
+    return True
