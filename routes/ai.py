@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/ai")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini")
 ERP_DATA_PREFIX = "\x00ERP_DATA:"
 ACTION_DATA_PREFIX = "\x00ACTION_DATA:"
+TRACE_SUMMARY_PREFIX = "\x00TRACE_SUMMARY:"
 
 # ===================== 请求体 Schema =====================
 
@@ -145,6 +146,19 @@ async def chat_endpoint(
                         logger.info("Chat", f"已推送 chat.action | actions={len(actions)}")
                     except json.JSONDecodeError:
                         logger.warn("Chat", "chat.action 事件 JSON 解析失败，已跳过")
+                    continue
+                if chunk.startswith(TRACE_SUMMARY_PREFIX):
+                    try:
+                        raw_json = chunk[len(TRACE_SUMMARY_PREFIX):]
+                        summary = json.loads(raw_json)
+                        yield "data: " + json.dumps({
+                            "id": "erp-ai",
+                            "object": "agent.trace",
+                            "trace": summary,
+                        }, ensure_ascii=False) + "\n\n"
+                        logger.info("Chat", f"已推送 agent.trace | steps={summary.get('step_count')} | status={summary.get('status')}")
+                    except json.JSONDecodeError:
+                        logger.warn("Chat", "agent.trace 事件 JSON 解析失败，已跳过")
                     continue
                 yield sse_chunk(chunk)
 

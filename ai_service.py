@@ -31,6 +31,7 @@ from rag.context_builder import build_context, RawErpData
 from memory.conversation_memory import get_history, append_user_message, append_assistant_message
 from memory.user_preference import get_preference_prompt, update_preference, QueryInfo
 from vector.knowledge_base import build_knowledge_prompt
+from trace.agent_trace import trace_service, StepType
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini")
 MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "3"))
@@ -141,6 +142,9 @@ async def chat_with_ai(
       - 普通文本              → 推送 chat.completion.chunk 事件
     """
     model_name = request.get("model") or DEFAULT_MODEL
+
+    # ---- 0. 开启 Trace ----
+    run_id = trace_service.start_trace(request["message"])
 
     # ---- 1. 解析技能规则 ----
     resolved_skill: Optional[str] = request.get("skill")
@@ -309,6 +313,7 @@ async def chat_with_ai(
                 raw_tool_result = json.dumps({"error": "工具执行失败，请重新提问"})
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
+            trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result)
             if tool_name in ("query_erp_list", "search_erp_global"):
                 query_erp_called = True
 
@@ -424,6 +429,10 @@ async def chat_with_ai(
                 filters=filters_as_dicts,
                 pageSize=call_info["args"].get("pageSize"),
             ))
+
+    # ---- 8. 结束 Trace，推送 summary ----
+    trace_service.end_trace(run_id, "completed")
+    yield f"\x00TRACE_SUMMARY:{json.dumps(trace_service.get_summary(run_id), ensure_ascii=False)}"
 
 
 # ===================== Key 测试 =====================
