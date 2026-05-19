@@ -120,7 +120,16 @@ class AgentTraceService:
             "step_count": len(trace.steps),
             "status": trace.status,
             "steps": [
-                {"id": s.step_id, "type": s.type, "name": s.name}
+                {
+                    "id": s.step_id,
+                    "type": s.type,
+                    "name": s.name,
+                    "timestamp": s.timestamp,
+                    "input": s.input_data,
+                    "output": s.output_data,
+                    "metadata": s.metadata or {},
+                    "error": s.error,
+                }
                 for s in trace.steps
             ],
             "duration_ms": duration_ms,
