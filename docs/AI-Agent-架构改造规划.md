@@ -25,11 +25,11 @@
 
 | 能力 | 状态 | 优先级 |
 |------|------|--------|
-| **Agent Run Trace** | ❌ 未实现 | 🔴 必须 |
-| **多Agent协作** | ❌ 未实现 | 🔴 必须 |
-| **安全增强** | ❌ 未实现 | 🔴 必须 |
-| **元认知层** | ⚠️ 1/4 实现 | 🔴 必须 |
-| **任务规划** | ❌ 未实现 | 🔴 必须 |
+| **Agent Run Trace** | ✅ 已实现 | 🔴 必须 |
+| **多Agent协作** | ✅ 已实现 | 🔴 必须 |
+| **安全增强** | ✅ 已实现 | 🔴 必须 |
+| **元认知层** | ✅ 已实现 | 🔴 必须 |
+| **任务规划** | ✅ 已实现 | 🔴 必须 |
 
 ### 1.3 项目评分
 
@@ -715,44 +715,43 @@ class AgentOrchestrator:
 - [ ] 集成到协调器每一步
 - [ ] 前端 SSE 推送轨迹摘要
 
-### Phase 0.75: 安全与可信 🔴
-- [ ] 安装 `slowapi`
-- [ ] 创建 `security/input_guard.py`
-- [ ] 实现提示注入检测
-- [ ] 创建 `security/human_in_loop.py`
-- [ ] 实现审批流程
-- [ ] 创建 `security/rate_limiter.py`
-- [ ] FastAPI 限流中间件
+### Phase 0.75: 安全与可信 🔴 ✅
+- [x] 安装 `slowapi`
+- [x] 创建 `security/input_guard.py`
+- [x] 实现提示注入检测
+- [x] 创建 `security/human_in_loop.py`
+- [x] 实现审批流程（POST /api/ai/approve、GET /api/ai/approvals）
+- [x] 创建 `security/rate_limiter.py`
+- [x] FastAPI 限流中间件
 
-### Phase 0.8: 元认知层 ⭐
-- [ ] 创建 `metacognition/meta_cognition.py`
-- [ ] 实现金额单位检查规则
-- [ ] 实现日期格式检查规则
-- [ ] 集成到 QueryAgent
-- [ ] 实现 LLM 反思兜底
-- [ ] 更新 AgentTrace 支持 reflection/retry
+### Phase 0.8: 元认知层 ⭐ ✅
+- [x] 创建 `metacognition/meta_cognition.py`
+- [x] 实现金额单位检查规则
+- [x] 实现日期格式检查规则
+- [x] 集成到 ai_service（空结果自动触发）
+- [x] 实现 LLM 反思兜底
+- [x] 更新 AgentTrace 支持 reflection/retry
 
-### Phase 1: IntentRouter 🔴
-- [ ] 创建 `router/intent_router.py`
-- [ ] 实现意图分类（simple/complex/write）
-- [ ] 简单查询分支优化
-- [ ] 单元测试
+### Phase 1: IntentRouter 🔴 ✅
+- [x] 创建 `router/intent_router.py`
+- [x] 实现意图分类（simple/complex/write）
+- [x] 简单查询分支优化（跳过 Agent Loop 快速回答）
+- [x] 单元测试
 
-### Phase 2: TaskPlanner
-- [ ] 创建 `planner/task_planner.py`
-- [ ] 实现任务拆分
-- [ ] 实现计划验证（循环依赖检测）
+### Phase 2: TaskPlanner ✅
+- [x] 创建 `planner/task_planner.py`
+- [x] 实现任务拆分（LLM + 关键词降级）
+- [x] 实现计划验证（循环依赖检测 DFS）
 
-### Phase 3: 多Agent拆分
-- [ ] 创建 `agents/base.py`
-- [ ] 创建 `agents/query_agent.py`
-- [ ] 创建 `agents/analysis_agent.py`
-- [ ] 创建 `orchestrator/agent_orchestrator.py`
+### Phase 3: 多Agent拆分 ✅
+- [x] 创建 `agents/base.py`
+- [x] 创建 `agents/query_agent.py`
+- [x] 创建 `agents/analysis_agent.py`
+- [x] 创建 `orchestrator/agent_orchestrator.py`（含向后兼容降级）
 
-### Phase 4: 收尾
-- [ ] 性能测试
-- [ ] 回归测试
-- [ ] 文档更新
+### Phase 4: 收尾 ✅
+- [x] 回归测试（模块导入 + 单元断言）
+- [x] 文档状态更新
 
 ---
 

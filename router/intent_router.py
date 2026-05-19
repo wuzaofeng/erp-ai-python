@@ -26,7 +26,8 @@ _SIMPLE_KEYWORDS = [
 
 _WRITE_KEYWORDS = [
     "新增", "添加", "创建", "修改", "更新", "编辑", "删除", "移除",
-    "审批", "提交", "保存", "录入", "import", "导入",
+    "审批", "提交", "保存", "录入", "导入",
+    "add", "create", "insert", "update", "edit", "delete", "remove", "import",
 ]
 
 _COMPLEX_KEYWORDS = [
