@@ -7,7 +7,8 @@
       "Bash(taskkill /F /IM python.exe)",
       "Read(//c/WorkSpace/**)",
       "Read(//c/WorkSpace/F02-ErpClient/**)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
