@@ -32,6 +32,7 @@ from memory.conversation_memory import get_history, append_user_message, append_
 from memory.user_preference import get_preference_prompt, update_preference, QueryInfo
 from vector.knowledge_base import build_knowledge_prompt
 from trace.agent_trace import trace_service, StepType
+from metacognition.meta_cognition import meta_cognition
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini")
 MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "3"))
@@ -325,6 +326,44 @@ async def chat_with_ai(
                     tool_call_id=tool_call_id,
                 ))
                 continue
+
+            # ---- 元认知反思：空结果时自动检查并提示调整 ----
+            if tool_name == "query_erp_list" and round_n < MAX_TOOL_ROUNDS:
+                parsed_check = parse_tool_result(raw_tool_result)
+                if not parsed_check or not parsed_check.rows:
+                    table_meta_for_reflect: dict = {}
+                    layout_for_reflect = await get_field_layout(
+                        table_name=tool_args.get("tableName", ""),
+                        user_id=user_id,
+                        erp_cookie=erp_cookie,
+                        erp_auth=erp_authorization,
+                    ) if tool_args.get("tableName") and user_id else None
+                    if layout_for_reflect:
+                        table_meta_for_reflect = {
+                            "fields": [
+                                {"name": k, "label": v}
+                                for k, v in (layout_for_reflect.field_labels or {}).items()
+                            ]
+                        }
+                    reflection = await meta_cognition.reflect_on_failure(
+                        query=tool_args,
+                        result=json.loads(raw_tool_result) if raw_tool_result.startswith("{") else {},
+                        table_meta=table_meta_for_reflect,
+                    )
+                    if reflection.success and reflection.adjustment:
+                        adj = reflection.adjustment
+                        hint = (
+                            f"【元认知提示】查询返回空结果，检测到可能的参数问题：\n"
+                            f"  类型：{adj.adjustment_type}\n"
+                            f"  字段：{adj.field}\n"
+                            f"  原始值：{adj.original} → 建议调整为：{adj.adjusted}\n"
+                            f"  置信度：{adj.confidence:.0%}\n"
+                            f"请根据以上建议调整查询参数后重新调用工具。"
+                        )
+                        trace_service.log_reflection(run_id, hint)
+                        logger.ai("MetaCognition", f"反思完成 | 类型={adj.adjustment_type} | 置信度={adj.confidence:.0%}")
+                        messages.append(ToolMessage(content=hint, tool_call_id=tool_call_id))
+                        continue
 
             # ---- RAG 处理 ----
             parsed = parse_tool_result(raw_tool_result)
