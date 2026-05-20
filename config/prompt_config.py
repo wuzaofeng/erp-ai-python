@@ -35,6 +35,15 @@ BEHAVIOR_RULES = """
       必须重新调用 query_erp_list，将新条件作为 filters 参数传入
     - 严禁通过输出 Markdown 表格来"模拟"过滤效果
     - 所有展示数据必须来自 ERP 最新接口返回
+13. 【多条件 and/or 拼接规则】
+    - Logic 字段含义：条件 N 的 Logic = 条件 N 与条件 N+1 之间的逻辑关系（向下关联）
+    - 用户说"A 或者 B"时：第1条 Logic="or"，第2条 Logic="and"（或留空，最后一条无意义）
+    - 用户说"A 且 B"时：第1条 Logic="and"，第2条 Logic="and"
+    - 需要分组时使用 LeftParen/RightParen，例如"(姓吴或姓张)且在职"：
+        第1条: FieldName=fEmpName, Operator=StartWith, Value=吴, Logic=or,  LeftParen=(, RightParen=
+        第2条: FieldName=fEmpName, Operator=StartWith, Value=张, Logic=and, LeftParen=,  RightParen=)
+        第3条: FieldName=fStatus,  Operator=Equal,     Value=在职, Logic=and, LeftParen=,  RightParen=
+    - 最后一条 FilterItem 的 Logic 无意义，固定填 "and"
 """
 
 # ===================== 安全规则 =====================
@@ -110,15 +119,16 @@ def build_system_prompt(
     if nav_index:
         logger.info("Prompt", f"navIndex 已注入 | 长度={len(nav_index)} | 前100字符: {nav_index[:100]}")
         nav_section = (
-            f"\n## 可跳转的 ERP 菜单（格式：页面名称:fFunCode[:可新增]）\n"
+            f"\n## 可跳转的 ERP 菜单（格式：页面名称:viewFormCode[:addFormCode]）\n"
             f"{nav_index}\n"
             f"\n## 页面跳转规则（必须遵守）\n"
             f"1. 当你通过 query_erp_list 查到数据后，如果该数据对应的业务模块在上方菜单中存在，"
             f"**必须额外调用一次 trigger_actions 工具**，"
             f"推送 action='navigate_query'（auto=true），"
-            f"params 传入 formCode（对应 fFunCode）、operation='view'、"
+            f"params.formCode 填入该行的 viewFormCode、operation='view'、"
             f"以及本次查询使用的相同 filters，让前端自动打开对应页面并带条件过滤。\n"
-            f"2. 用户明确要新增时：推送 action='navigate_query'，operation='add'，auto=false。\n"
+            f"2. 用户明确要新增时：推送 action='navigate_query'，"
+            f"params.formCode 填入该行的 addFormCode（第三段），operation='add'，auto=false。\n"
             f"3. navigate_query 与文字摘要回答同时进行，两者都要做。\n"
         )
 

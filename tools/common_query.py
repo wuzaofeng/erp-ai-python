@@ -23,7 +23,7 @@ class FilterItem(BaseModel):
     FieldName: str = Field(description="字段名，参考数据表目录中的常用字段")
     Operator: str = Field(description="过滤操作符，使用 ERP 标准值：Equal / NotEqual / GreaterThan / GreaterThanOrEqual / LessThan / LessThanOrEqual / Like / NotLike / StartWith / EndWith / IsNull / IsNotNull / InList / NotInList")
     Value: str = Field(default="", description="过滤值，IsNull/IsNotNull 时可留空")
-    Logic: Optional[str] = Field(default="and", description="与上一条件的逻辑关系：and（且）或 or（或），默认 and")
+    Logic: Optional[str] = Field(default="and", description="当前条件与下一条件的逻辑关系：and（且）或 or（或），默认 and；最后一条填 and")
     LeftParen: Optional[str] = Field(default="", description="左括号，需要分组时填 \"(\"，否则留空")
     RightParen: Optional[str] = Field(default="", description="右括号，需要分组时填 \")\"，否则留空")
 
