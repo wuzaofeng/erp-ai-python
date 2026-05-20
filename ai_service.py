@@ -306,12 +306,16 @@ async def chat_with_ai(
                 if isinstance(invoke_result, dict) and "content" in invoke_result:
                     c = invoke_result["content"]
                     raw_tool_result = c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)
+                elif hasattr(invoke_result, "content"):
+                    # LangChain ToolMessage 对象
+                    c = invoke_result.content
+                    raw_tool_result = c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)
                 else:
                     raw_tool_result = str(invoke_result)
                 logger.ai("ToolCall", f"[{tool_name}] 完成 | 耗时={t_tool()}ms | 返回={len(raw_tool_result)}字节")
             except Exception as e:
                 logger.error("ToolCall", f"[{tool_name}] 失败: {e}")
-                raw_tool_result = json.dumps({"error": "工具执行失败，请重新提问"})
+                raw_tool_result = json.dumps({"error": f"工具执行失败：{e}"}, ensure_ascii=False)
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
             trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result)
@@ -470,7 +474,7 @@ async def chat_with_ai(
             ))
 
     # ---- 8. 结束 Trace，推送 summary ----
-    trace_service.end_trace(run_id, "completed")
+    trace_service.end_trace(run_id, "completed", user_id=user_id)
     yield f"\x00TRACE_SUMMARY:{json.dumps(trace_service.get_summary(run_id), ensure_ascii=False)}"
 
 

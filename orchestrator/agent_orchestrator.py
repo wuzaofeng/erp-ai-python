@@ -41,6 +41,7 @@ class AgentOrchestrator:
         self.analysis_agent = AnalysisAgent(api_key)
 
     async def execute(self, request: dict) -> AsyncGenerator[str, None]:
+        user_id = self.erp_config.get("user_id", "")
         run_id = self.trace.start_trace(request["message"])
 
         try:
@@ -53,7 +54,7 @@ class AgentOrchestrator:
             if routing.intent == "simple":
                 async for chunk in self._simple_answer(request["message"]):
                     yield chunk
-                self.trace.end_trace(run_id, "completed")
+                self.trace.end_trace(run_id, "completed", user_id=user_id)
                 yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id), ensure_ascii=False)}"
                 return
 
@@ -82,7 +83,7 @@ class AgentOrchestrator:
                     async for chunk in self.analysis_agent.execute(request["message"], context):
                         yield chunk
 
-                self.trace.end_trace(run_id, "completed")
+                self.trace.end_trace(run_id, "completed", user_id=user_id)
                 yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id), ensure_ascii=False)}"
                 return
 
@@ -92,7 +93,7 @@ class AgentOrchestrator:
                 yield chunk
 
         except Exception as exc:
-            self.trace.end_trace(run_id, "failed", str(exc))
+            self.trace.end_trace(run_id, "failed", str(exc), user_id=user_id)
             logger.error("Orchestrator", f"执行失败: {exc}")
             yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id), ensure_ascii=False)}"
             raise

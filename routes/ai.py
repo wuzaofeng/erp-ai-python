@@ -365,6 +365,59 @@ def handle_approval_endpoint(body: ApprovalDecisionBody):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ===================== GET /api/ai/traces =====================
+
+@router.get("/traces")
+def list_traces_endpoint(
+    userId: str = Query(...),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """查询指定用户的历史 Agent Trace 列表（不含 steps 详情）"""
+    from db import get_conn
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT run_id, user_message, status, step_count, duration_ms, created_at
+        FROM agent_traces
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        (userId, limit, offset),
+    ).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM agent_traces WHERE user_id = ?", (userId,)
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "total": total,
+        "traces": [dict(r) for r in rows],
+    }
+
+
+@router.get("/traces/{run_id}")
+def get_trace_endpoint(run_id: str):
+    """查询单条 Trace 完整 steps 详情"""
+    from db import get_conn
+    import json as _json
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM agent_traces WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Trace {run_id} 不存在")
+    data = dict(row)
+    try:
+        data["steps"] = _json.loads(data["steps"])
+    except Exception:
+        data["steps"] = []
+    return data
+
+
+# ===================== Human-in-Loop 审批 =====================
+
 @router.get("/approvals")
 def list_approvals_endpoint(
     x_user_id: Optional[str] = Header(default=None, alias="x-user-id"),
