@@ -12,7 +12,7 @@ from fastapi import APIRouter, Request, Header, Query, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from ai_service import chat_with_ai, test_openrouter_key
+from ai_service import test_openrouter_key
 from key_service import save_user_key, get_user_key, has_user_key, delete_user_key, validate_key_format
 from logger import logger, start_timer
 from security.input_guard import input_guard
@@ -22,7 +22,6 @@ from config.skills import list_skills, get_skill_by_key, create_skill, update_sk
 from memory.conversation_memory import clear_history, get_memory_stats
 from memory.user_preference import clear_preference, get_preference
 from cache.query_cache import get_cache_stats, clear_all_cache
-from router.intent_router import IntentRouter, RoutingResult
 
 router = APIRouter(prefix="/api/ai")
 
@@ -130,42 +129,20 @@ async def chat_endpoint(
             "navIndex": body.navIndex,
         }
 
-        # ---- IntentRouter：simple 意图快速回答，跳过完整 Agent Loop ----
-        try:
-            intent_router = IntentRouter(api_key=openrouter_key, use_llm=False)
-            routing: RoutingResult = await intent_router.route(body.message)
-            logger.info("IntentRouter", f"意图={routing.intent} | 置信度={routing.confidence:.0%} | {routing.reasoning}")
-            if routing.intent == "simple":
-                from langchain_openai import ChatOpenAI
-                from langchain_core.messages import SystemMessage, HumanMessage
-                simple_llm = ChatOpenAI(
-                    api_key=openrouter_key,
-                    model=model_name,
-                    temperature=0.3,
-                    base_url="https://openrouter.ai/api/v1",
-                )
-                simple_messages = [
-                    SystemMessage(content="你是 ERP 系统智能助手，请简洁友好地回答用户问题。"),
-                    HumanMessage(content=body.message),
-                ]
-                async for chunk in simple_llm.astream(simple_messages):
-                    text = chunk.content if isinstance(chunk.content, str) else ""
-                    if text:
-                        yield sse_chunk(text)
-                yield "data: [DONE]\n\n"
-                logger.success("Chat", f"simple 意图快速完成 | 用户={user_id}")
-                return
-        except Exception as route_err:
-            logger.warn("IntentRouter", f"路由异常，降级走完整流程: {route_err}")
+        # ---- AgentOrchestrator：统一入口，内部处理 simple/complex/write 分流 ----
+        from orchestrator.agent_orchestrator import AgentOrchestrator
+        orchestrator = AgentOrchestrator(
+            api_key=openrouter_key,
+            erp_config={
+                "cookie": erp_cookie,
+                "authorization": erp_authorization,
+                "user_id": user_id,
+                "pageContext": body.pageContext,
+            },
+        )
 
         try:
-            async for chunk in chat_with_ai(
-                request=request_dict,
-                openrouter_key=openrouter_key,
-                erp_cookie=erp_cookie,
-                erp_authorization=erp_authorization,
-                user_id=user_id,
-            ):
+            async for chunk in orchestrator.execute(request_dict):
                 if chunk.startswith(ERP_DATA_PREFIX):
                     try:
                         raw_json = chunk[len(ERP_DATA_PREFIX):]

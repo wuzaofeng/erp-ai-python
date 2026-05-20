@@ -39,9 +39,11 @@ class QueryAgent(BaseAgent):
         self,
         message: str,
         context: Optional[str] = None,
+        full_request: Optional[dict] = None,
     ) -> AsyncGenerator[str, None]:
+        """full_request 优先，兼容直接传 message 的调用方"""
         from ai_service import chat_with_ai
-        request = {
+        request = full_request or {
             "message": message,
             "pageContext": self.erp_config.get("pageContext"),
             "model": os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini"),

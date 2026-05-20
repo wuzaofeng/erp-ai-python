@@ -70,7 +70,10 @@ class AgentOrchestrator:
                 logger.ai("Orchestrator", f"TaskPlanner 生成 {len(plan.tasks)} 个子任务")
 
                 query_result_chunks: list[str] = []
-                async for chunk in self.query_agent.execute(request["message"]):
+                async for chunk in self.query_agent.execute(
+                    request["message"],
+                    full_request=request,
+                ):
                     query_result_chunks.append(chunk) if not chunk.startswith("\x00") else None
                     yield chunk
 
@@ -123,3 +126,4 @@ class AgentOrchestrator:
             user_id=self.erp_config.get("user_id", ""),
         ):
             yield chunk
+        # fallback 不再重复 end_trace，由 chat_with_ai 内部已 yield TRACE_SUMMARY
