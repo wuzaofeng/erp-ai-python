@@ -21,9 +21,11 @@ from logger import logger
 
 class FilterItem(BaseModel):
     FieldName: str = Field(description="字段名，参考数据表目录中的常用字段")
-    Operator: str = Field(description="过滤操作符：= / contains / > / < / >= / <= / != / startsWith / endsWith")
-    Value: str = Field(description="过滤值")
-    Logic: Optional[str] = Field(default=None, description="多条件逻辑关系，默认 AND")
+    Operator: str = Field(description="过滤操作符，使用 ERP 标准值：Equal / NotEqual / GreaterThan / GreaterThanOrEqual / LessThan / LessThanOrEqual / Like / NotLike / StartWith / EndWith / IsNull / IsNotNull / InList / NotInList")
+    Value: str = Field(default="", description="过滤值，IsNull/IsNotNull 时可留空")
+    Logic: Optional[str] = Field(default="and", description="与上一条件的逻辑关系：and（且）或 or（或），默认 and")
+    LeftParen: Optional[str] = Field(default="", description="左括号，需要分组时填 \"(\"，否则留空")
+    RightParen: Optional[str] = Field(default="", description="右括号，需要分组时填 \")\"，否则留空")
 
 
 class CommonQueryInput(BaseModel):
@@ -42,7 +44,9 @@ COMMON_QUERY_DESCRIPTION = (
     '调用前必须从系统提示中的"数据表目录"找到正确的 tableName。'
     "【重要】若需要传入 filters 过滤条件，必须先调用 get_table_fields 工具获取该表的真实字段列表，"
     "然后从返回的字段名中选取正确的 FieldName，严禁依赖训练知识猜测字段名。"
-    "支持多条件过滤，Operator 可用：= / contains / > / < / >= / <= / != / startsWith / endsWith。"
+    "支持多条件过滤：Operator 使用 ERP 标准值（Equal/NotEqual/GreaterThan/GreaterThanOrEqual/LessThan/LessThanOrEqual/Like/NotLike/StartWith/EndWith/IsNull/IsNotNull/InList/NotInList）；"
+    "Logic 字段控制与上一条件的关系（and=且，or=或，默认 and）；"
+    "LeftParen/RightParen 用于条件分组，如 (A or B) and C 时 A 填 LeftParen=\"(\"，B 填 RightParen=\")\"。"
     "适用场景：列表查询、条件筛选、分页浏览、跨表联查。"
 )
 

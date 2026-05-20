@@ -26,15 +26,36 @@ FIELD_LAYOUT_TTL_S = 10 * 60  # 10 分钟
 # ===================== 操作符映射 =====================
 
 OPERATOR_MAP: dict[str, str] = {
-    "=":          "Equal",
-    "contains":   "Like",
-    ">":          "GreaterThan",
-    "<":          "LessThan",
-    ">=":         "GreaterEqual",
-    "<=":         "LessEqual",
-    "!=":         "NotEqual",
-    "startsWith": "StartsWith",
-    "endsWith":   "EndsWith",
+    # 兼容旧版简写，统一转为 ERP 标准值
+    "=":           "Equal",
+    "!=":          "NotEqual",
+    ">":           "GreaterThan",
+    ">=":          "GreaterThanOrEqual",
+    "<":           "LessThan",
+    "<=":          "LessThanOrEqual",
+    "contains":    "Like",
+    "notContains": "NotLike",
+    "startsWith":  "StartWith",
+    "endsWith":    "EndWith",
+    "isNull":      "IsNull",
+    "isNotNull":   "IsNotNull",
+    "inList":      "InList",
+    "notInList":   "NotInList",
+    # ERP 标准值直传（AI 直接传标准值时原样保留）
+    "Equal":              "Equal",
+    "NotEqual":           "NotEqual",
+    "GreaterThan":        "GreaterThan",
+    "GreaterThanOrEqual": "GreaterThanOrEqual",
+    "LessThan":           "LessThan",
+    "LessThanOrEqual":    "LessThanOrEqual",
+    "Like":               "Like",
+    "NotLike":            "NotLike",
+    "StartWith":          "StartWith",
+    "EndWith":            "EndWith",
+    "IsNull":             "IsNull",
+    "IsNotNull":          "IsNotNull",
+    "InList":             "InList",
+    "NotInList":          "NotInList",
 }
 
 
@@ -42,11 +63,15 @@ def _to_erp_api_filters(filters: list[dict]) -> list[dict]:
     """将 AI 工具调用格式的 ErpFilter 转为 ERP 接口实际格式 ErpApiFilter"""
     result = []
     for f in filters:
-        result.append({
+        item: dict = {
             "fFeild":          f["FieldName"],
             "fComparOperator": OPERATOR_MAP.get(f["Operator"], f["Operator"]),
-            "fValue":          f["Value"],
-        })
+            "fValue":          f.get("Value", ""),
+            "fConnectRelate":  f.get("Logic", "and"),   # and / or，默认 and
+            "fLeftKuoHao":     f.get("LeftParen", ""),  # "(" 或 ""
+            "fRightKuoHao":    f.get("RightParen", ""), # ")" 或 ""
+        }
+        result.append(item)
     return result
 
 
