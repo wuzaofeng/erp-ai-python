@@ -62,15 +62,17 @@ OPERATOR_MAP: dict[str, str] = {
 def _to_erp_api_filters(filters: list[dict]) -> list[dict]:
     """将 AI 工具调用格式的 ErpFilter 转为 ERP 接口实际格式 ErpApiFilter"""
     result = []
-    for f in filters:
+    last = len(filters) - 1
+    for i, f in enumerate(filters):
         item: dict = {
             "fFeild":          f["FieldName"],
             "fComparOperator": OPERATOR_MAP.get(f["Operator"], f["Operator"]),
             "fValue":          f.get("Value", ""),
-            "fConnectRelate":  f.get("Logic", "and"),   # and / or，默认 and
-            "fLeftKuoHao":     f.get("LeftParen", ""),  # "(" 或 ""
-            "fRightKuoHao":    f.get("RightParen", ""), # ")" 或 ""
+            "fLeftKuoHao":     f.get("LeftParen", ""),
+            "fRightKuoHao":    f.get("RightParen", ""),
         }
+        if i < last:
+            item["fConnectRelate"] = f.get("Logic", "and")
         result.append(item)
     return result
 

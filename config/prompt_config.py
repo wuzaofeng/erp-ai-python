@@ -43,7 +43,7 @@ BEHAVIOR_RULES = """
         第1条: FieldName=fEmpName, Operator=StartWith, Value=吴, Logic=or,  LeftParen=(, RightParen=
         第2条: FieldName=fEmpName, Operator=StartWith, Value=张, Logic=and, LeftParen=,  RightParen=)
         第3条: FieldName=fStatus,  Operator=Equal,     Value=在职, Logic=and, LeftParen=,  RightParen=
-    - 最后一条 FilterItem 的 Logic 无意义，固定填 "and"
+    - 最后一条 FilterItem 没有下一条可关联，Logic 留空或不填
 """
 
 # ===================== 安全规则 =====================
