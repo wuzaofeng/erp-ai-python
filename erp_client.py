@@ -105,16 +105,18 @@ def _build_erp_headers(erp_cookie: str = "", erp_auth: str = "") -> dict:
 
 def _build_common_query_body(args: dict) -> dict:
     """根据 AI 工具参数组装 CommonQuery 请求体"""
-    filters: list[dict] = args.get("filters") or []
+    raw_filters = args.get("filters")
+    pagination: dict = {
+        "PageIndex":  args.get("pageIndex", 1),
+        "PageSize":   args.get("pageSize", 20),
+        "IsPageable": True,
+        "lstFldFliter": [],
+    }
+    if raw_filters is not None:
+        pagination["lstAdvFilterRow"] = _to_erp_api_filters(raw_filters)
     default_body = {
         "TableName": args["tableName"],
-        "Pagination": {
-            "PageIndex":      args.get("pageIndex", 1),
-            "PageSize":       args.get("pageSize", 20),
-            "IsPageable":     True,
-            "lstFldFliter":   [],
-            "lstAdvFilterRow": _to_erp_api_filters(filters),
-        },
+        "Pagination": pagination,
         "IsChild": False,
         "Action":  "GridBrowse",
         "formData": {},
@@ -338,6 +340,9 @@ def _parse_grid_columns(data: dict) -> Optional[FieldLayout]:
     return FieldLayout(field_labels=field_labels, hidden_fields=hidden_fields)
 
 
+FIELD_LAYOUT_DB_TTL_S = 24 * 60 * 60  # SQLite cache 保留 24 小时
+
+
 async def get_field_layout(
     table_name: str,
     user_id: str,
@@ -345,36 +350,37 @@ async def get_field_layout(
     erp_auth: str,
 ) -> Optional[FieldLayout]:
     """
-    调用 ERP getProgGridLayout 接口，获取字段布局。
-    结果带 10 分钟内存缓存。
+    获取字段布局。优先读 SQLite erp_form_layout_cache（TTL 24h），
+    过期或缺失时调用 getProgGridLayout 并回写 cache。
     """
-    # 延迟导入，避免循环依赖
-    from config.table_catalog import FORM_CODE_CONFIG
+    import json as _json
+    from db import get_conn
 
-    config_entry = FORM_CODE_CONFIG.get(table_name)
-    form_code = (config_entry or {}).get("formCode") or _derive_form_code(table_name)
-    front_js_file = (config_entry or {}).get("frontJSFileName") or "view.jsx"
-
-    cache_key = f"{user_id}:{form_code}"
+    form_code = _derive_form_code(table_name)
     now = time.time()
 
-    cached = _field_layout_cache.get(cache_key)
-    if cached and cached.expires_at > now:
-        logger.ai("FieldLayout", f"缓存命中 | user={user_id} | form={form_code}")
-        return FieldLayout(
-            field_labels=cached.field_labels,
-            hidden_fields=cached.hidden_fields,
-        )
+    # ---- 1. 读 SQLite cache ----
+    conn = get_conn()
+    db_row = conn.execute(
+        "SELECT fields_json, cached_at FROM erp_form_layout_cache WHERE form_code = ?",
+        (form_code,),
+    ).fetchone()
+    conn.close()
 
-    if not config_entry:
-        logger.warn("FieldLayout", f'表 "{table_name}" 未在 FORM_CODE_CONFIG 中配置，使用推断 formCode="{form_code}"')
+    if db_row and (now - db_row["cached_at"]) < FIELD_LAYOUT_DB_TTL_S:
+        try:
+            fields = _json.loads(db_row["fields_json"])
+            field_labels = {f["field"]: f["label"] for f in fields if f.get("field")}
+            hidden_fields = [f for f in fields if f.get("hidden")]
+            logger.ai("FieldLayout", f"SQLite cache 命中 | form={form_code} | 字段={len(field_labels)}")
+            return FieldLayout(field_labels=field_labels, hidden_fields=hidden_fields)
+        except Exception:
+            pass
 
+    # ---- 2. cache 缺失/过期，调 ERP 接口 ----
+    logger.ai("FieldLayout", f"SQLite cache 未命中，调用 ERP | form={form_code}")
     url = f"{ERP_BASE_URL}/gw/api/ERP/FunRights/getProgGridLayout"
-    body = {
-        "sUserCode":       user_id,
-        "FormCode":        form_code,
-        "FrontJSFileName": front_js_file,
-    }
+    body = {"sUserCode": user_id, "FormCode": form_code, "FrontJSFileName": "view.jsx"}
     headers = _build_erp_headers(erp_cookie, erp_auth)
 
     t = start_timer()
@@ -382,29 +388,56 @@ async def get_field_layout(
         async with httpx.AsyncClient(verify=False, follow_redirects=False, timeout=8.0) as client:
             response = await client.post(url, json=body, headers=headers)
 
-        logger.erp("FieldLayout", f"← 响应 {response.status_code} | user={user_id} | form={form_code} | 耗时={t()}ms")
+        logger.erp("FieldLayout", f"← 响应 {response.status_code} | form={form_code} | 耗时={t()}ms")
+        data = response.json()
 
-        layout = _parse_grid_columns(response.json())
-        if not layout:
-            logger.warn("FieldLayout", f"无法解析列配置 | form={form_code}，跳过字段过滤")
+        if not data.get("success"):
+            logger.warn("FieldLayout", f"ERP 返回失败 | form={form_code} | msg={data.get('msg')}")
             return None
 
-        logger.ai(
-            "FieldLayout",
-            f"已解析 | form={form_code} | 总字段={len(layout.field_labels)} | 隐藏={len(layout.hidden_fields)}"
-        )
+        resp_data  = data.get("response") or {}
+        form_desc  = resp_data.get("fFormDesc", "")
+        main_cfg   = resp_data.get("mainTableConfig") or {}
+        inter_code = main_cfg.get("fInterCode", "")
+        db_table_name = f"{form_code}.{inter_code}" if inter_code else form_code
+        columns    = main_cfg.get("columns") or []
 
-        _field_layout_cache[cache_key] = FieldLayoutCache(
-            field_labels=layout.field_labels,
-            hidden_fields=layout.hidden_fields,
-            expires_at=now + FIELD_LAYOUT_TTL_S,
-        )
-        return layout
+        fields = [
+            {"field": c.get("f4", ""), "label": c.get("f5", ""), "hidden": bool(c.get("f28", False))}
+            for c in columns if c.get("f4")
+        ]
+        sub_tables = [
+            {
+                "inter_code": s.get("fInterCode", ""),
+                "desc": (s.get("fInterDesc") or [""])[0],
+                "table_name": f"{form_code}.{s.get('fInterCode', '')}",
+                "fields": [
+                    {"field": c.get("f4", ""), "label": c.get("f5", "")}
+                    for c in (s.get("columns") or []) if c.get("f4")
+                ],
+            }
+            for s in (resp_data.get("subTableConfig") or [])
+        ]
+
+        # 回写 SQLite cache
+        conn = get_conn()
+        with conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO erp_form_layout_cache
+                    (form_code, table_name, form_desc, fields_json, sub_tables_json, cached_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (form_code, db_table_name, form_desc,
+                  _json.dumps(fields, ensure_ascii=False),
+                  _json.dumps(sub_tables, ensure_ascii=False),
+                  now))
+        conn.close()
+
+        field_labels = {f["field"]: f["label"] for f in fields if f.get("field")}
+        hidden_fields = [f for f in fields if f.get("hidden")]
+        logger.ai("FieldLayout", f"已解析并缓存 | form={form_code} | 字段={len(field_labels)} | 隐藏={len(hidden_fields)}")
+        return FieldLayout(field_labels=field_labels, hidden_fields=hidden_fields)
 
     except Exception as err:
         status = getattr(getattr(err, "response", None), "status_code", "N/A")
-        logger.warn(
-            "FieldLayout",
-            f"获取字段布局失败（将使用静态配置兜底）| form={form_code} | status={status} | {err}"
-        )
+        logger.warn("FieldLayout", f"获取字段布局失败 | form={form_code} | status={status} | {err}")
         return None

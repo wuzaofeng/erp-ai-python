@@ -440,3 +440,182 @@ def list_approvals_endpoint(
             for a in pending
         ]
     }
+
+
+# ===================== ERP 表目录管理 =====================
+
+class CatalogCreateBody(BaseModel):
+    form_code:   str = Field(..., min_length=1)
+    module_name: str = Field(default="")
+    api_path:    str = Field(default="")
+    extra_body:  str = Field(default="")
+    enabled:     int = Field(default=1)
+
+class CatalogUpdateBody(BaseModel):
+    module_name: Optional[str] = None
+    api_path:    Optional[str] = None
+    extra_body:  Optional[str] = None
+    enabled:     Optional[int] = None
+
+
+def _catalog_row_to_dict(row) -> dict:
+    d = dict(row)
+    # 拼上 layout cache 信息
+    return d
+
+
+@router.get("/catalog")
+def list_catalog():
+    from db import get_conn
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT c.form_code, c.module_name, c.api_path, c.extra_body, c.enabled, c.created_at,
+               l.table_name, l.form_desc, l.cached_at
+        FROM erp_form_catalog c
+        LEFT JOIN erp_form_layout_cache l ON c.form_code = l.form_code
+        ORDER BY c.form_code
+    """).fetchall()
+    conn.close()
+    return {"catalog": [dict(r) for r in rows]}
+
+
+@router.post("/catalog")
+def create_catalog(body: CatalogCreateBody):
+    import time
+    from db import get_conn
+    conn = get_conn()
+    existing = conn.execute(
+        "SELECT 1 FROM erp_form_catalog WHERE form_code = ?", (body.form_code,)
+    ).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(status_code=409, detail=f"{body.form_code} 已存在")
+    with conn:
+        conn.execute(
+            """INSERT INTO erp_form_catalog
+               (form_code, module_name, api_path, extra_body, enabled, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (body.form_code, body.module_name, body.api_path, body.extra_body, body.enabled, time.time()),
+        )
+    conn.close()
+    return {"ok": True, "form_code": body.form_code}
+
+
+@router.put("/catalog/{form_code}")
+def update_catalog(form_code: str, body: CatalogUpdateBody):
+    from db import get_conn
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM erp_form_catalog WHERE form_code = ?", (form_code,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"{form_code} 不存在")
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if updates:
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        with conn:
+            conn.execute(
+                f"UPDATE erp_form_catalog SET {set_clause} WHERE form_code = ?",
+                (*updates.values(), form_code),
+            )
+    conn.close()
+    return {"ok": True}
+
+
+@router.delete("/catalog/{form_code}")
+def delete_catalog(form_code: str):
+    from db import get_conn
+    conn = get_conn()
+    with conn:
+        conn.execute("DELETE FROM erp_form_catalog WHERE form_code = ?", (form_code,))
+        conn.execute("DELETE FROM erp_form_layout_cache WHERE form_code = ?", (form_code,))
+    conn.close()
+    return {"ok": True}
+
+
+@router.post("/catalog/{form_code}/sync")
+async def sync_catalog(
+    form_code: str,
+    request: Request,
+    x_user_id: Optional[str] = Header(default=None, alias="x-user-id"),
+):
+    """调用 getProgGridLayout 刷新单条表的字段布局缓存"""
+    import time, json as _json
+    from db import get_conn
+    from erp_client import _build_erp_headers, ERP_BASE_URL, _HTTP_CLIENT_KWARGS
+    import httpx
+
+    row = None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM erp_form_catalog WHERE form_code = ?", (form_code,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"{form_code} 不存在")
+
+    erp_cookie = request.headers.get("x-erp-cookie", "")
+    erp_auth   = request.headers.get("x-erp-authorization", request.headers.get("authorization", ""))
+    user_id    = x_user_id or ""
+
+    url  = f"{ERP_BASE_URL}/gw/api/ERP/FunRights/getProgGridLayout"
+    body = {"sUserCode": user_id, "FormCode": form_code, "FrontJSFileName": "view.jsx"}
+    headers = _build_erp_headers(erp_cookie, erp_auth)
+
+    try:
+        async with httpx.AsyncClient(**_HTTP_CLIENT_KWARGS) as client:
+            resp = await client.post(url, json=body, headers=headers)
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"调用 ERP 接口失败: {e}")
+
+    if not data.get("success"):
+        raise HTTPException(status_code=502, detail=data.get("msg") or "ERP 返回失败")
+
+    response   = data.get("response") or {}
+    form_desc  = response.get("fFormDesc", "")
+    main_cfg   = response.get("mainTableConfig") or {}
+    inter_code = main_cfg.get("fInterCode", "")
+    table_name = f"{form_code}.{inter_code}" if inter_code else form_code
+    columns    = main_cfg.get("columns") or []
+
+    # 精简字段信息：只保留 f4(字段名) f5(描述) f28(强制隐藏) f35(可见)
+    fields = [
+        {"field": c.get("f4", ""), "label": c.get("f5", ""), "hidden": bool(c.get("f28", False))}
+        for c in columns if c.get("f4")
+    ]
+
+    # 细表摘要
+    sub_tables = [
+        {
+            "inter_code": s.get("fInterCode", ""),
+            "desc": (s.get("fInterDesc") or [""])[0],
+            "table_name": f"{form_code}.{s.get('fInterCode', '')}",
+            "fields": [
+                {"field": c.get("f4", ""), "label": c.get("f5", "")}
+                for c in (s.get("columns") or []) if c.get("f4")
+            ],
+        }
+        for s in (response.get("subTableConfig") or [])
+    ]
+
+    now = time.time()
+    conn = get_conn()
+    with conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO erp_form_layout_cache
+                (form_code, table_name, form_desc, fields_json, sub_tables_json, cached_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (form_code, table_name, form_desc, _json.dumps(fields, ensure_ascii=False),
+              _json.dumps(sub_tables, ensure_ascii=False), now))
+    conn.close()
+
+    return {
+        "ok": True,
+        "form_code":  form_code,
+        "table_name": table_name,
+        "form_desc":  form_desc,
+        "field_count": len(fields),
+        "sub_table_count": len(sub_tables),
+    }

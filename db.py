@@ -95,4 +95,32 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_traces_user_time
             ON agent_traces(user_id, created_at)
         """)
+
+        # ---- ERP 表目录（人工维护 FormCode 注册表）----
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS erp_form_catalog (
+                form_code   TEXT PRIMARY KEY,
+                module_name TEXT NOT NULL DEFAULT '',
+                api_path    TEXT NOT NULL DEFAULT '',
+                extra_body  TEXT NOT NULL DEFAULT '',
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                created_at  REAL NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_catalog_enabled
+            ON erp_form_catalog(enabled)
+        """)
+
+        # ---- ERP 字段布局缓存（从 getProgGridLayout 自动填充）----
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS erp_form_layout_cache (
+                form_code      TEXT PRIMARY KEY,
+                table_name     TEXT NOT NULL DEFAULT '',
+                form_desc      TEXT NOT NULL DEFAULT '',
+                fields_json    TEXT NOT NULL DEFAULT '[]',
+                sub_tables_json TEXT NOT NULL DEFAULT '[]',
+                cached_at      REAL NOT NULL
+            )
+        """)
     conn.close()

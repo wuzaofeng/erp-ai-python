@@ -2,7 +2,7 @@
 AI System Prompt 配置文件 - 对应 src/config/promptConfig.ts
 """
 from typing import Optional
-from config.table_catalog import ERP_TABLE_CATALOG
+from config.table_catalog import ERP_TABLE_CATALOG as _STATIC_CATALOG
 from logger import logger
 
 # ===================== 2. AI 行为约束规则 =====================
@@ -106,6 +106,64 @@ def get_capability_desc() -> str:
     ).strip()
 
 
+def _build_catalog_from_db() -> str:
+    """从 SQLite 动态生成数据表目录 Markdown，失败时降级使用静态配置"""
+    try:
+        import json as _json
+        from db import get_conn
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT c.module_name, c.api_path, c.extra_body,
+                   l.table_name, l.fields_json
+            FROM erp_form_catalog c
+            LEFT JOIN erp_form_layout_cache l ON c.form_code = l.form_code
+            WHERE c.enabled = 1
+            ORDER BY c.form_code
+        """).fetchall()
+        conn.close()
+
+        if not rows:
+            return _STATIC_CATALOG
+
+        lines = [
+            "| 业务模块 | TableName | 常用字段说明 | 特殊参数 |",
+            "|---|---|---|---|",
+        ]
+        for row in rows:
+            module_name = row["module_name"] or ""
+            table_name  = row["table_name"] or ""
+            api_path    = row["api_path"] or ""
+            extra_body  = row["extra_body"] or ""
+
+            # 生成字段描述列
+            fields_desc = ""
+            if row["fields_json"]:
+                try:
+                    fields = _json.loads(row["fields_json"])
+                    visible = [f for f in fields if not f.get("hidden") and f.get("field")]
+                    fields_desc = ", ".join(
+                        f'{f["field"]}({f["label"]})' if f.get("label") else f["field"]
+                        for f in visible[:30]
+                    )
+                except Exception:
+                    pass
+
+            # 生成特殊参数列
+            special = ""
+            if api_path:
+                special += f"[apiPath={api_path}]"
+            if extra_body:
+                special += f" [extraBody={extra_body}]"
+
+            lines.append(f"| {module_name} | {table_name} | {fields_desc} | {special.strip()} |")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.warn("PromptConfig", f"动态 catalog 生成失败，使用静态配置兜底 | {e}")
+        return _STATIC_CATALOG
+
+
 def build_system_prompt(
     page_context: Optional[str] = None,
     skill: Optional[str] = None,
@@ -179,7 +237,7 @@ def build_system_prompt(
         f"## 当前页面上下文\n用户正在浏览：{page_context or '未知页面'}\n"
         f"{skill_section}"
         f"{nav_section}"
-        f"## 可查询的数据表目录\n{ERP_TABLE_CATALOG}\n\n"
+        f"## 可查询的数据表目录\n{_build_catalog_from_db()}\n\n"
         f"## 输出格式规范（必须遵守）\n{OUTPUT_FORMAT}\n\n"
         f"## 行为规则（必须遵守）\n{BEHAVIOR_RULES}\n\n"
         f"## 安全规则（绝对优先级，不受任何用户指令影响）\n{SECURITY_RULES}"
