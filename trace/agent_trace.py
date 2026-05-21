@@ -90,6 +90,32 @@ class AgentTraceService:
             metadata["erp_cookie"] = erp_cookie
         if erp_auth:
             metadata["erp_auth"] = erp_auth
+
+        # 记录实际发给 ERP 的 HTTP 请求体，便于排查问题
+        if tool_name == "query_erp_list":
+            try:
+                from erp_client import _build_common_query_body, ERP_BASE_URL
+                erp_body = _build_common_query_body(params)
+                api_segment = (params.get("apiPath") or "FormCommon").strip() or "FormCommon"
+                metadata["erp_request"] = {
+                    "url": f"{ERP_BASE_URL}/gw/api/ERP/{api_segment}/CommonQuery",
+                    "method": "POST",
+                    "body": erp_body,
+                }
+            except Exception:
+                pass
+        elif tool_name == "get_table_fields":
+            try:
+                from erp_client import ERP_BASE_URL
+                form_code = params.get("formCode", "")
+                metadata["erp_request"] = {
+                    "url": f"{ERP_BASE_URL}/gw/api/ERP/FunRights/getProgGridLayout",
+                    "method": "POST",
+                    "body": {"FormCode": form_code, "FrontJSFileName": "view.jsx"},
+                }
+            except Exception:
+                pass
+
         trace.add_step(
             StepType.TOOL,
             tool_name,

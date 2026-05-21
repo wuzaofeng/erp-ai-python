@@ -403,7 +403,8 @@ async def get_field_layout(
         columns    = main_cfg.get("columns") or []
 
         fields = [
-            {"field": c.get("f4", ""), "label": c.get("f5", ""), "hidden": bool(c.get("f28", False))}
+            {"field": c.get("f4", ""), "label": c.get("f5", ""),
+             "hidden": bool(c.get("f28", False)) or c.get("f26") is False}
             for c in columns if c.get("f4")
         ]
         sub_tables = [

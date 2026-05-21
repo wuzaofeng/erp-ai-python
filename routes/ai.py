@@ -348,8 +348,51 @@ def stats_endpoint():
 
 @router.delete("/cache")
 def clear_cache_endpoint():
+    """清空 ERP 查询结果内存缓存（LRU）"""
+    stats = get_cache_stats()
+    size = stats.get("size", 0)
     clear_all_cache()
-    return {"success": True, "message": "ERP 查询缓存已清空"}
+    return {"ok": True, "deleted": size, "message": f"已清空 {size} 条查询结果缓存"}
+
+
+@router.delete("/catalog/layout-cache/sqlite")
+def clear_layout_sqlite_cache():
+    """清空 erp_form_layout_cache SQLite 持久化缓存（保留 catalog 条目，同步清进程内存）"""
+    from db import get_conn
+    from tools.table_fields import _field_cache
+    conn = get_conn()
+    with conn:
+        result = conn.execute("DELETE FROM erp_form_layout_cache")
+        deleted = result.rowcount
+    conn.close()
+    _field_cache.clear()
+    return {"ok": True, "deleted": deleted, "message": f"已清空 {deleted} 条字段布局 SQLite 缓存"}
+
+
+@router.delete("/catalog/layout-cache/memory")
+def clear_layout_memory_cache():
+    """清空字段布局进程内存缓存（不影响 SQLite）"""
+    from tools.table_fields import _field_cache
+    deleted = len(_field_cache)
+    _field_cache.clear()
+    return {"ok": True, "deleted": deleted, "message": f"已清空 {deleted} 条字段布局内存缓存"}
+
+
+@router.get("/cache/stats")
+def get_all_cache_stats():
+    """返回各层缓存当前数量"""
+    from db import get_conn
+    from tools.table_fields import _field_cache
+    conn = get_conn()
+    sqlite_count = conn.execute("SELECT COUNT(*) FROM erp_form_layout_cache").fetchone()[0]
+    conn.close()
+    query_stats = get_cache_stats()
+    return {
+        "ok": True,
+        "layoutSqlite": sqlite_count,
+        "layoutMemory": len(_field_cache),
+        "queryMemory": query_stats.get("size", 0),
+    }
 
 
 # ===================== Human-in-Loop 审批 =====================
@@ -470,7 +513,7 @@ def list_catalog():
     conn = get_conn()
     rows = conn.execute("""
         SELECT c.form_code, c.module_name, c.api_path, c.extra_body, c.enabled, c.created_at,
-               l.table_name, l.form_desc, l.cached_at
+               l.table_name, l.form_desc, l.fields_json, l.sub_tables_json, l.cached_at
         FROM erp_form_catalog c
         LEFT JOIN erp_form_layout_cache l ON c.form_code = l.form_code
         ORDER BY c.form_code
@@ -580,9 +623,10 @@ async def sync_catalog(
     table_name = f"{form_code}.{inter_code}" if inter_code else form_code
     columns    = main_cfg.get("columns") or []
 
-    # 精简字段信息：只保留 f4(字段名) f5(描述) f28(强制隐藏) f35(可见)
+    # f28=强制隐藏 / f26=在编辑页是否可见（缺失时视为True）
     fields = [
-        {"field": c.get("f4", ""), "label": c.get("f5", ""), "hidden": bool(c.get("f28", False))}
+        {"field": c.get("f4", ""), "label": c.get("f5", ""),
+         "hidden": bool(c.get("f28", False)) or c.get("f26") is False}
         for c in columns if c.get("f4")
     ]
 
@@ -663,7 +707,8 @@ async def sync_all_catalog(
             table_name = f"{fc}.{inter_code}" if inter_code else fc
             columns    = main_cfg.get("columns") or []
             fields = [
-                {"field": c.get("f4", ""), "label": c.get("f5", ""), "hidden": bool(c.get("f28", False))}
+                {"field": c.get("f4", ""), "label": c.get("f5", ""),
+                 "hidden": bool(c.get("f28", False)) or c.get("f26") is False}
                 for c in columns if c.get("f4")
             ]
             sub_tables = [

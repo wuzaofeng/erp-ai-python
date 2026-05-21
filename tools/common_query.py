@@ -42,8 +42,8 @@ class CommonQueryInput(BaseModel):
 COMMON_QUERY_DESCRIPTION = (
     "查询 ERP 系统的业务列表数据。支持供应商、客户、物料、采购订单、销售订单、库存、应付/应收账款等。"
     '调用前必须从系统提示中的"数据表目录"找到正确的 tableName。'
-    "【重要】若需要传入 filters 过滤条件，必须先调用 get_table_fields 工具获取该表的真实字段列表，"
-    "然后从返回的字段名中选取正确的 FieldName，严禁依赖训练知识猜测字段名。"
+    "【重要】若需要传入 filters 过滤条件，必须先调用 get_table_fields 工具（传入 formCode）获取字段列表，"
+    "tableName 使用 get_table_fields 返回的 tableName 字段值，严禁依赖训练知识猜测字段名。"
     "支持多条件过滤：Operator 使用 ERP 标准值（Equal/NotEqual/GreaterThan/GreaterThanOrEqual/LessThan/LessThanOrEqual/Like/NotLike/StartWith/EndWith/IsNull/IsNotNull/InList/NotInList）；"
     "Logic 字段控制与上一条件的关系（and=且，or=或，默认 and）；"
     "LeftParen/RightParen 用于条件分组，如 (A or B) and C 时 A 填 LeftParen=\"(\"，B 填 RightParen=\")\"。"
