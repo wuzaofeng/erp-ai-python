@@ -343,7 +343,7 @@ async def chat_with_ai(
                 raw_tool_result = json.dumps({"error": f"工具执行失败：{e}"}, ensure_ascii=False)
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
-            trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result)
+            trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, erp_cookie=erp_cookie, erp_auth=erp_authorization)
             if tool_name in ("query_erp_list", "search_erp_global"):
                 query_erp_called = True
 

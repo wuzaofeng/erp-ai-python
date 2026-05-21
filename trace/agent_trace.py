@@ -66,7 +66,7 @@ class AgentTraceService:
         self._traces[run_id] = trace
         return run_id
 
-    def log_tool(self, run_id: str, tool_name: str, params: dict, result: Any) -> None:
+    def log_tool(self, run_id: str, tool_name: str, params: dict, result: Any, erp_cookie: str = "", erp_auth: str = "") -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
@@ -85,12 +85,17 @@ class AgentTraceService:
                 pass
         elif isinstance(result, list):
             row_count = len(result)
+        metadata: dict = {"row_count": row_count}
+        if erp_cookie:
+            metadata["erp_cookie"] = erp_cookie
+        if erp_auth:
+            metadata["erp_auth"] = erp_auth
         trace.add_step(
             StepType.TOOL,
             tool_name,
             input_data=params,
             output_data=output_data,
-            metadata={"row_count": row_count},
+            metadata=metadata,
         )
 
     def log_retry(self, run_id: str, reason: str, attempt: int) -> None:
