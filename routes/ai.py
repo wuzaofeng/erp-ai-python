@@ -619,3 +619,93 @@ async def sync_catalog(
         "field_count": len(fields),
         "sub_table_count": len(sub_tables),
     }
+
+
+@router.post("/catalog/sync-all")
+async def sync_all_catalog(
+    request: Request,
+    x_user_id: Optional[str] = Header(default=None, alias="x-user-id"),
+):
+    """批量 Sync 所有启用的表，逐条调用 getProgGridLayout"""
+    import time, json as _json, asyncio
+    from db import get_conn
+    from erp_client import _build_erp_headers, ERP_BASE_URL, _HTTP_CLIENT_KWARGS
+    import httpx
+
+    erp_cookie = request.headers.get("x-erp-cookie", "")
+    erp_auth   = request.headers.get("x-erp-authorization", request.headers.get("authorization", ""))
+    user_id    = x_user_id or ""
+
+    conn = get_conn()
+    form_codes = [r["form_code"] for r in conn.execute(
+        "SELECT form_code FROM erp_form_catalog WHERE enabled = 1 ORDER BY form_code"
+    ).fetchall()]
+    conn.close()
+
+    headers = _build_erp_headers(erp_cookie, erp_auth)
+    results = {"success": [], "failed": []}
+
+    async def _sync_one(fc: str):
+        url  = f"{ERP_BASE_URL}/gw/api/ERP/FunRights/getProgGridLayout"
+        body = {"sUserCode": user_id, "FormCode": fc, "FrontJSFileName": "view.jsx"}
+        try:
+            async with httpx.AsyncClient(**_HTTP_CLIENT_KWARGS) as client:
+                resp = await client.post(url, json=body, headers=headers)
+            data = resp.json()
+            if not data.get("success"):
+                results["failed"].append({"form_code": fc, "reason": data.get("msg", "ERP 返回失败")})
+                return
+
+            response   = data.get("response") or {}
+            form_desc  = response.get("fFormDesc", "")
+            main_cfg   = response.get("mainTableConfig") or {}
+            inter_code = main_cfg.get("fInterCode", "")
+            table_name = f"{fc}.{inter_code}" if inter_code else fc
+            columns    = main_cfg.get("columns") or []
+            fields = [
+                {"field": c.get("f4", ""), "label": c.get("f5", ""), "hidden": bool(c.get("f28", False))}
+                for c in columns if c.get("f4")
+            ]
+            sub_tables = [
+                {
+                    "inter_code": s.get("fInterCode", ""),
+                    "desc": (s.get("fInterDesc") or [""])[0],
+                    "table_name": f"{fc}.{s.get('fInterCode', '')}",
+                    "fields": [
+                        {"field": c.get("f4", ""), "label": c.get("f5", "")}
+                        for c in (s.get("columns") or []) if c.get("f4")
+                    ],
+                }
+                for s in (response.get("subTableConfig") or [])
+            ]
+            now = time.time()
+            conn2 = get_conn()
+            with conn2:
+                conn2.execute("""
+                    INSERT OR REPLACE INTO erp_form_layout_cache
+                        (form_code, table_name, form_desc, fields_json, sub_tables_json, cached_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (fc, table_name, form_desc,
+                      _json.dumps(fields, ensure_ascii=False),
+                      _json.dumps(sub_tables, ensure_ascii=False), now))
+            conn2.close()
+            results["success"].append({"form_code": fc, "table_name": table_name, "field_count": len(fields)})
+
+        except Exception as e:
+            results["failed"].append({"form_code": fc, "reason": str(e)})
+
+    # 并发但限制 5 个并行，避免对 ERP 造成压力
+    semaphore = asyncio.Semaphore(5)
+    async def _guarded(fc):
+        async with semaphore:
+            await _sync_one(fc)
+
+    await asyncio.gather(*[_guarded(fc) for fc in form_codes])
+
+    return {
+        "ok": True,
+        "total": len(form_codes),
+        "success_count": len(results["success"]),
+        "failed_count": len(results["failed"]),
+        "failed": results["failed"],
+    }
