@@ -26,12 +26,12 @@ class ActionItem(BaseModel):
         default=None,
         description=(
             "操作参数。"
-            "filter: {filters:[{field,op,value}]}；"
+            "filter: {filters:[{FieldName,Operator,Value}]}；"
             "navigate: {path:'/erp/...'}；"
-            "navigate_query: {formCode:'fFunCode值', operation:'view'或'add', filters:[{field,op,value}]}"
+            "navigate_query: {formCode:'fFunCode值', operation:'view'或'add', filters:[{FieldName,Operator,Value}]}；"
+            "filters 中的 FieldName 必须使用 query_erp_list 查询结果中实际存在的字段名，禁止猜测或自造字段名"
         )
     )
-
 
 class TriggerActionsInput(BaseModel):
     actions: list[ActionItem] = Field(description="要推送给前端的操作列表，至少1个")
@@ -45,17 +45,22 @@ TRIGGER_ACTIONS_DESCRIPTION = (
     "- 查询到业务数据后，菜单中存在对应页面 → 必须额外调用本工具推送 navigate_query，"
     "auto=true，让前端自动打开该页面并带相同过滤条件，与文字摘要同时进行\n"
     "- 用户说「去供应商页面查华为」→ action=navigate_query, params.formCode=对应fFunCode, "
-    "params.operation=view, params.filters=[{field,op,value}], auto=true\n"
+    "params.operation=view, params.filters=[{FieldName,Operator,Value}], auto=true\n"
     "- 用户说「新增一个供应商」→ action=navigate_query, params.formCode=对应fFunCode, "
     "params.operation=add, auto=false（新增需用户确认）\n"
     "fFunCode 从系统提示的【可跳转的 ERP 菜单】中查找对应页面名称获取。\n"
+    "filters 中的 FieldName 必须使用 query_erp_list 返回结果中实际存在的字段名，禁止猜测或自造不存在的字段名。\n"
     "所有 action 都会渲染为可点击按钮，auto=true 的会立即自动执行。"
 )
 
 
 def create_trigger_actions_tool(**_kwargs) -> StructuredTool:
     def trigger_actions(actions: list[dict]) -> str:
-        payload = json.dumps({"actions": actions}, ensure_ascii=False)
+        serializable = [
+            a.model_dump() if hasattr(a, "model_dump") else dict(a)
+            for a in actions
+        ]
+        payload = json.dumps({"actions": serializable}, ensure_ascii=False)
         return f"\x00ACTION_DATA:{payload}"
 
     return StructuredTool.from_function(

@@ -54,14 +54,16 @@ class AgentTraceService:
     def __init__(self):
         self._traces: dict[str, AgentRunTrace] = {}
 
-    def start_trace(self, user_message: str, intent: str = "pending") -> str:
+    def start_trace(self, user_message: str, intent: str = "pending", conversation_id: str = "") -> str:
         run_id = f"run_{uuid.uuid4().hex[:12]}"
-        self._traces[run_id] = AgentRunTrace(
+        trace = AgentRunTrace(
             run_id=run_id,
             user_message=user_message,
             intent=intent,
             start_time=datetime.now().isoformat(),
         )
+        trace.conversation_id = conversation_id
+        self._traces[run_id] = trace
         return run_id
 
     def log_tool(self, run_id: str, tool_name: str, params: dict, result: Any) -> None:
@@ -147,12 +149,13 @@ class AgentTraceService:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO agent_traces
-                        (run_id, user_id, user_message, status, step_count, duration_ms, steps, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        (run_id, user_id, conversation_id, user_message, status, step_count, duration_ms, steps, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         trace.run_id,
                         user_id,
+                        getattr(trace, "conversation_id", ""),
                         trace.user_message,
                         trace.status,
                         summary["step_count"],
@@ -180,6 +183,8 @@ class AgentTraceService:
             )
         return {
             "run_id": trace.run_id,
+            "conversation_id": getattr(trace, "conversation_id", ""),
+            "user_message": trace.user_message,
             "step_count": len(trace.steps),
             "status": trace.status,
             "steps": [

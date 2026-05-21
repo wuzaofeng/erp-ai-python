@@ -42,7 +42,10 @@ class AgentOrchestrator:
 
     async def execute(self, request: dict) -> AsyncGenerator[str, None]:
         user_id = self.erp_config.get("user_id", "")
-        run_id = self.trace.start_trace(request["message"])
+        run_id = self.trace.start_trace(
+            request["message"],
+            conversation_id=request.get("conversation_id", ""),
+        )
 
         try:
             # ---- 1. 意图路由 ----
@@ -125,6 +128,7 @@ class AgentOrchestrator:
             erp_cookie=self.erp_config.get("cookie", ""),
             erp_authorization=self.erp_config.get("authorization", ""),
             user_id=self.erp_config.get("user_id", ""),
+            _run_id=run_id,
         ):
             yield chunk
-        # fallback 不再重复 end_trace，由 chat_with_ai 内部已 yield TRACE_SUMMARY
+        # fallback 复用 orchestrator 的 run_id，TRACE_SUMMARY 由 chat_with_ai 内部 yield

@@ -80,14 +80,15 @@ def init_db() -> None:
         # ---- Agent Trace 表 ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS agent_traces (
-                run_id       TEXT PRIMARY KEY,
-                user_id      TEXT NOT NULL DEFAULT '',
-                user_message TEXT NOT NULL,
-                status       TEXT NOT NULL DEFAULT 'completed',
-                step_count   INTEGER NOT NULL DEFAULT 0,
-                duration_ms  INTEGER,
-                steps        TEXT NOT NULL DEFAULT '[]',
-                created_at   REAL NOT NULL
+                run_id          TEXT PRIMARY KEY,
+                user_id         TEXT NOT NULL DEFAULT '',
+                conversation_id TEXT NOT NULL DEFAULT '',
+                user_message    TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'completed',
+                step_count      INTEGER NOT NULL DEFAULT 0,
+                duration_ms     INTEGER,
+                steps           TEXT NOT NULL DEFAULT '[]',
+                created_at      REAL NOT NULL
             )
         """)
         conn.execute("""

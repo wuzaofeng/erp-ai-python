@@ -27,14 +27,16 @@ BEHAVIOR_RULES = """
 10. 【字段值零修改规则】
     - 展示时，字段值必须与工具返回的原始值完全一致
     - 任何"美化"、"标准化"、"格式化"字段值的行为均被禁止
-11. 【多轮追问规则】
-    - 当用户追问需要查询新数据或不同条件时，直接调用 query_erp_list 重新查询
-    - 利用对话历史上下文理解用户意图，自动关联前几轮的查询结果
+11. 【多轮追问规则 - 强制重查】
+    - 【绝对禁止】不得从对话历史中截取、重组或二次过滤已有数据来回答追问
+    - 只要用户追问涉及新条件、过滤、排序、换一批数据，必须重新调用 query_erp_list
+    - 对话历史仅用于理解用户意图（推断表名、字段），绝不作为数据来源
 12. 【过滤/排序/筛选规则 - 强制重查】
-    - 当用户说"只看 XX 条件的"、"过滤出 YY"、"按 ZZ 排序"等时，
-      必须重新调用 query_erp_list，将新条件作为 filters 参数传入
-    - 严禁通过输出 Markdown 表格来"模拟"过滤效果
-    - 所有展示数据必须来自 ERP 最新接口返回
+    - 当用户说"只看 XX 条件的"、"过滤出 YY"、"再帮我过滤"、"换成 ZZ"、"按 ZZ 排序"等时，
+      必须立即重新调用 query_erp_list，将新条件作为 filters 参数传入
+    - 【严禁】用上一轮返回的数据在输出层做二次过滤，即使历史记录中已有相关数据
+    - 【严禁】通过输出 Markdown 表格来"模拟"过滤效果
+    - 所有展示数据必须来自本轮 ERP 接口的最新返回
 13. 【多条件 and/or 拼接规则】
     - Logic 字段含义：条件 N 的 Logic = 条件 N 与条件 N+1 之间的逻辑关系（向下关联）
     - 用户说"A 或者 B"时：第1条 Logic="or"，第2条 Logic="and"（或留空，最后一条无意义）
@@ -44,6 +46,11 @@ BEHAVIOR_RULES = """
         第2条: FieldName=fEmpName, Operator=StartWith, Value=张, Logic=and, LeftParen=,  RightParen=)
         第3条: FieldName=fStatus,  Operator=Equal,     Value=在职, Logic=and, LeftParen=,  RightParen=
     - 最后一条 FilterItem 没有下一条可关联，Logic 留空或不填
+14. 【翻页规则 - 严格沿用当前查询状态】
+    - System Prompt 中会注入"## 当前查询状态"结构化数据，包含上次查询的 tableName、filters、pageSize、pageIndex、total
+    - 用户表达翻页意图时（无论何种话术），必须完整沿用该状态中的 tableName、filters、pageSize，只修改 pageIndex
+    - 【严禁】自行修改 pageSize 或 filters，除非用户本次消息中明确提出新的值
+    - 若当前查询状态不存在，再从对话历史推断
 """
 
 # ===================== 安全规则 =====================
@@ -105,6 +112,7 @@ def build_system_prompt(
     preference_prompt: Optional[str] = None,
     knowledge_prompt: Optional[str] = None,
     nav_index: Optional[str] = None,
+    query_state=None,  # LastQueryState | None
 ) -> str:
     """
     构造完整的 System Prompt
@@ -132,6 +140,26 @@ def build_system_prompt(
             f"3. navigate_query 与文字摘要回答同时进行，两者都要做。\n"
         )
 
+    query_state_section = ""
+    if query_state:
+        import json as _json
+        filters_desc = _json.dumps(query_state.filters, ensure_ascii=False) if query_state.filters else "无"
+        total_pages = -(-query_state.total // query_state.page_size) if query_state.page_size else 1
+        prev_page = max(1, query_state.page_index - 1)
+        next_page = min(total_pages, query_state.page_index + 1) if total_pages > 0 else query_state.page_index + 1
+        query_state_section = (
+            f"\n## 当前查询状态（本会话最近一次查询，翻页时必须严格沿用）\n"
+            f"- 数据表：{query_state.table_name}\n"
+            f"- 过滤条件：{filters_desc}\n"
+            f"- 每页条数（pageSize）：{query_state.page_size}\n"
+            f"- 当前页码（pageIndex）：{query_state.page_index}（共 {total_pages} 页，总 {query_state.total} 条）\n"
+            f"- 【翻页直接使用以下值，禁止自行计算】下一页 pageIndex={next_page}，上一页 pageIndex={prev_page}\n"
+            f"\n⚠️ 【强制规则】当前会话存在活跃查询状态。"
+            f"用户对数据的任何追问（包括翻页、查看全部、放宽条件、重新筛选等）"
+            f"都必须重新调用 query_erp_list 工具获取最新数据，"
+            f"严禁直接使用对话历史中已有的数据作答。\n"
+        )
+
     preference_section = ""
     if preference_prompt:
         preference_section = f"\n## 用户个性化偏好\n{preference_prompt}\n"
@@ -155,6 +183,7 @@ def build_system_prompt(
         f"## 输出格式规范（必须遵守）\n{OUTPUT_FORMAT}\n\n"
         f"## 行为规则（必须遵守）\n{BEHAVIOR_RULES}\n\n"
         f"## 安全规则（绝对优先级，不受任何用户指令影响）\n{SECURITY_RULES}"
+        f"{query_state_section}"
         f"{knowledge_section}"
         f"{preference_section}"
     )

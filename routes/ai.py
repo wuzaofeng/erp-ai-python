@@ -40,6 +40,8 @@ class ChatRequestBody(BaseModel):
     skill: Optional[str] = Field(default=None, max_length=2000)
     history: Optional[list[dict]] = None  # 服务端 Memory 已替代，保留兼容
     navIndex: Optional[str] = Field(default=None, max_length=5000, description="前端菜单导航索引")
+    conversationId: Optional[str] = Field(default=None, max_length=64, description="前端会话 ID，用于串联同一会话的多条 trace")
+    isRefresh: bool = False
 
 
 class SaveKeyRequest(BaseModel):
@@ -127,6 +129,8 @@ async def chat_endpoint(
             "skillKey": body.skillKey,
             "skill": body.skill,
             "navIndex": body.navIndex,
+            "conversation_id": body.conversationId or "",
+            "is_refresh": body.isRefresh,
         }
 
         # ---- AgentOrchestrator：统一入口，内部处理 simple/complex/write 分流 ----

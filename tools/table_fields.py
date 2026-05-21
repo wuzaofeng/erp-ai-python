@@ -11,11 +11,17 @@ ERP 表字段列表查询工具 - 对应 src/tools/tableFields.ts
 """
 from typing import Optional
 import json
+import time
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
 
 from erp_client import get_field_layout
 from logger import logger
+
+# 进程级字段缓存：tableName → (timestamp, result_str)
+# 字段定义属于静态配置，TTL 设为 1 小时
+_field_cache: dict[str, tuple[float, str]] = {}
+_FIELD_CACHE_TTL = 3600
 
 # ===================== 工具描述 =====================
 
@@ -41,6 +47,12 @@ def create_table_fields_tool(erp_cookie: str, erp_auth: str, user_id: str = "") 
     """创建 TableFields 工具实例"""
 
     async def table_fields_handler(tableName: str) -> str:
+        now = time.time()
+        cached_ts, cached_result = _field_cache.get(tableName, (0.0, ""))
+        if cached_result and now - cached_ts < _FIELD_CACHE_TTL:
+            logger.info("TableFields", f"缓存命中 | table={tableName}")
+            return cached_result
+
         logger.info("TableFields", f"获取字段列表 | table={tableName}")
         try:
             fields = await get_field_layout(
@@ -53,7 +65,7 @@ def create_table_fields_tool(erp_cookie: str, erp_auth: str, user_id: str = "") 
                 return f"未找到表 '{tableName}' 的字段信息，请确认表名是否正确。"
 
             logger.info("TableFields", f"获取到 {len(fields.field_labels)} 个字段 | table={tableName}")
-            return json.dumps(
+            result_str = json.dumps(
                 {
                     "tableName": tableName,
                     "fields": fields.field_labels,
@@ -63,6 +75,8 @@ def create_table_fields_tool(erp_cookie: str, erp_auth: str, user_id: str = "") 
                 ensure_ascii=False,
                 indent=2,
             )
+            _field_cache[tableName] = (now, result_str)
+            return result_str
         except Exception as e:
             logger.error("TableFields", f"获取字段失败 | table={tableName} | err={e}")
             return f"获取字段列表失败：{str(e)}"

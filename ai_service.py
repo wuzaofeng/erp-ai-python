@@ -30,6 +30,7 @@ from erp_client import get_field_layout
 from rag.context_builder import build_context, RawErpData
 from memory.conversation_memory import get_history, append_user_message, append_assistant_message
 from memory.user_preference import get_preference_prompt, update_preference, QueryInfo
+from memory.session_state import save_query_state, get_query_state, LastQueryState
 from vector.knowledge_base import build_knowledge_prompt
 from trace.agent_trace import trace_service, StepType
 from metacognition.meta_cognition import meta_cognition
@@ -134,6 +135,7 @@ async def chat_with_ai(
     erp_cookie: str = "",
     erp_authorization: str = "",
     user_id: str = "",
+    _run_id: str = "",
 ) -> AsyncGenerator[str, None]:
     """
     核心：AI 对话 + Agent Loop，返回 AsyncGenerator 用于流式输出
@@ -144,8 +146,12 @@ async def chat_with_ai(
     """
     model_name = request.get("model") or DEFAULT_MODEL
 
-    # ---- 0. 开启 Trace ----
-    run_id = trace_service.start_trace(request["message"])
+    # ---- 0. 开启 Trace（外部传入 run_id 时复用，避免 orchestrator fallback 重复开 trace）----
+    conv_id = request.get("conversation_id", "")
+    if _run_id:
+        run_id = _run_id
+    else:
+        run_id = trace_service.start_trace(request["message"], conversation_id=conv_id)
 
     # ---- 1. 解析技能规则 ----
     resolved_skill: Optional[str] = request.get("skill")
@@ -163,7 +169,7 @@ async def chat_with_ai(
             logger.ai("Skill", f"按页面自动匹配技能 [{auto_matched.key}]: {auto_matched.name}")
 
     # ---- 2. 读取服务端 Memory、用户偏好、知识库 ----
-    history_messages = get_history(user_id)
+    history_messages = get_history(user_id, conv_id)
     preference_prompt = get_preference_prompt(user_id)
     knowledge_prompt = build_knowledge_prompt(request["message"])
     logger.ai(
@@ -176,10 +182,29 @@ async def chat_with_ai(
     tool_map: dict[str, Any] = {t.name: t for t in erp_tools}
 
     # ---- 4. 构造初始消息 ----
+    current_query_state = get_query_state(conv_id) if conv_id else None
+    if current_query_state:
+        logger.ai("SessionState", f"注入查询状态 | table={current_query_state.table_name} | pageSize={current_query_state.page_size} | pageIndex={current_query_state.page_index} | total={current_query_state.total}")
+    else:
+        logger.ai("SessionState", f"无活跃查询状态 | conv_id={conv_id}")
     system_prompt_text = build_system_prompt(
         request.get("pageContext"), resolved_skill, preference_prompt, knowledge_prompt,
         nav_index=request.get("navIndex"),
+        query_state=current_query_state,
     )
+    # 刷新时强制重复上次查询，不走翻页逻辑
+    is_refresh = request.get("is_refresh", False)
+    user_message_content = request["message"]
+    if is_refresh and current_query_state:
+        user_message_content = (
+            f"【刷新指令】请重新执行上一次查询，参数保持完全不变："
+            f"tableName={current_query_state.table_name}，"
+            f"pageSize={current_query_state.page_size}，"
+            f"pageIndex={current_query_state.page_index}，"
+            f"filters 与上次相同。不得修改任何参数。"
+        )
+        logger.ai("SessionState", f"刷新模式：重复查询 pageIndex={current_query_state.page_index}")
+
     messages: list[BaseMessage] = [
         SystemMessage(content=system_prompt_text),
         *[
@@ -187,10 +212,10 @@ async def chat_with_ai(
             else AIMessage(content=h.content)
             for h in history_messages
         ],
-        HumanMessage(content=request["message"]),
+        HumanMessage(content=user_message_content),
     ]
 
-    append_user_message(user_id, request["message"])
+    append_user_message(user_id, request["message"], conv_id)
 
     # ---- 5. Agent Loop ----
     used_model = model_name
@@ -369,6 +394,19 @@ async def chat_with_ai(
                         messages.append(ToolMessage(content=hint, tool_call_id=tool_call_id))
                         continue
 
+            # ---- 保存会话查询状态（用于翻页上下文注入）----
+            if tool_name == "query_erp_list":
+                parsed_for_state = parse_tool_result(raw_tool_result)
+                conv_id = request.get("conversation_id", "")
+                if conv_id and parsed_for_state:
+                    save_query_state(conv_id, LastQueryState(
+                        table_name=tool_args.get("tableName", ""),
+                        page_size=tool_args.get("pageSize", 20),
+                        page_index=tool_args.get("pageIndex", 1) or 1,
+                        filters=tool_args.get("filters", []),
+                        total=parsed_for_state.total,
+                    ))
+
             # ---- RAG 处理 ----
             parsed = parse_tool_result(raw_tool_result)
             if parsed and parsed.rows:
@@ -457,7 +495,7 @@ async def chat_with_ai(
     # ---- 7. 收尾：保存 Memory + 更新 userPreference ----
     final_answer = "".join(accumulated_answer)
     if final_answer:
-        append_assistant_message(user_id, final_answer)
+        append_assistant_message(user_id, final_answer, conv_id)
         logger.ai("Memory", f"AI 回复已保存到 Memory | userId={user_id} | 字符={len(final_answer)}")
 
     for call_info in called_tool_args:

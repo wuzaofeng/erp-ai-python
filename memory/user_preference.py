@@ -148,9 +148,6 @@ def update_preference(user_id: str, info: QueryInfo) -> None:
     pref.frequentFilters.sort(key=lambda ff: ff.useCount, reverse=True)
     pref.frequentFilters = pref.frequentFilters[:MAX_FREQUENT_FILTERS]
 
-    if info.pageSize:
-        pref.preferredPageSize = info.pageSize
-
     pref.updatedAt = now
     _save(pref)
     logger.info(

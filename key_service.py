@@ -81,5 +81,19 @@ def delete_user_key(user_id: str) -> None:
     conn.close()
 
 
+def get_all_keys() -> dict[str, str]:
+    """返回所有用户的解密后 key，供评测脚本使用"""
+    conn = get_conn()
+    rows = conn.execute("SELECT user_id, encrypted FROM user_keys").fetchall()
+    conn.close()
+    result = {}
+    for row in rows:
+        try:
+            result[row["user_id"]] = _decrypt(row["encrypted"])
+        except Exception:
+            pass
+    return result
+
+
 def validate_key_format(key: str) -> bool:
     return bool(re.match(r"^sk-or-v1-[a-zA-Z0-9_-]{10,}$", key))
