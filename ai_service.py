@@ -513,7 +513,7 @@ async def chat_with_ai(
 
     # ---- 8. 结束 Trace，推送 summary ----
     trace_service.end_trace(run_id, "completed", user_id=user_id)
-    yield f"\x00TRACE_SUMMARY:{json.dumps(trace_service.get_summary(run_id), ensure_ascii=False)}"
+    yield f"\x00TRACE_SUMMARY:{json.dumps(trace_service.get_summary(run_id, slim=True), ensure_ascii=False)}"
 
 
 # ===================== Key 测试 =====================

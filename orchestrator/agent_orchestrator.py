@@ -58,7 +58,7 @@ class AgentOrchestrator:
                 async for chunk in self._simple_answer(request["message"]):
                     yield chunk
                 self.trace.end_trace(run_id, "completed", user_id=user_id)
-                yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id), ensure_ascii=False)}"
+                yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id, slim=True), ensure_ascii=False)}"
                 return
 
             # ---- 3. complex + 高置信度：多 Agent ----
@@ -87,7 +87,7 @@ class AgentOrchestrator:
                         yield chunk
 
                 self.trace.end_trace(run_id, "completed", user_id=user_id)
-                yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id), ensure_ascii=False)}"
+                yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id, slim=True), ensure_ascii=False)}"
                 return
 
             # ---- 4. 其余情况：退回单 Agent（向后兼容）----
@@ -98,7 +98,7 @@ class AgentOrchestrator:
         except Exception as exc:
             self.trace.end_trace(run_id, "failed", str(exc), user_id=user_id)
             logger.error("Orchestrator", f"执行失败: {exc}")
-            yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id), ensure_ascii=False)}"
+            yield f"\x00TRACE_SUMMARY:{json.dumps(self.trace.get_summary(run_id, slim=True), ensure_ascii=False)}"
             raise
 
     async def _simple_answer(self, message: str) -> AsyncGenerator[str, None]:

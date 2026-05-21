@@ -171,7 +171,8 @@ class AgentTraceService:
     def get_trace(self, run_id: str) -> Optional[AgentRunTrace]:
         return self._traces.get(run_id)
 
-    def get_summary(self, run_id: str) -> dict:
+    def get_summary(self, run_id: str, slim: bool = False) -> dict:
+        """返回 trace 摘要。slim=True 时不含 steps（用于 SSE 推送，减小传输体积）"""
         trace = self._traces.get(run_id)
         if not trace:
             return {"step_count": 0, "status": "unknown"}
@@ -181,12 +182,18 @@ class AgentTraceService:
                 (datetime.fromisoformat(trace.end_time) - datetime.fromisoformat(trace.start_time))
                 .total_seconds() * 1000
             )
-        return {
+        base = {
             "run_id": trace.run_id,
             "conversation_id": getattr(trace, "conversation_id", ""),
             "user_message": trace.user_message,
             "step_count": len(trace.steps),
             "status": trace.status,
+            "duration_ms": duration_ms,
+        }
+        if slim:
+            return base
+        return {
+            **base,
             "steps": [
                 {
                     "id": s.step_id,
@@ -200,7 +207,6 @@ class AgentTraceService:
                 }
                 for s in trace.steps
             ],
-            "duration_ms": duration_ms,
         }
 
 
