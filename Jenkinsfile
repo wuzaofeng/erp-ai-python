@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        REPO_URL     = 'git@10.35.110.18:gitlab-instance-997c3570/erp-ai-python.git'
+        REPO_URL     = 'http://10.35.110.18/gitlab-instance-997c3570/AI-python.git'
         PROJECT_NAME = 'erp_ai_python'
         HARBOR_URL   = '10.35.121.11:5000/erp_ai_python'
     }
