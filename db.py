@@ -35,13 +35,18 @@ def init_db() -> None:
         # ---- 对话历史表 ----
         conn.execute("""
             CREATE TABLE IF NOT EXISTS conversations (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id       TEXT    NOT NULL,
-                role          TEXT    NOT NULL,
-                content       TEXT    NOT NULL,
-                created_at    REAL    NOT NULL
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         TEXT    NOT NULL,
+                conversation_id TEXT    NOT NULL DEFAULT '',
+                role            TEXT    NOT NULL,
+                content         TEXT    NOT NULL,
+                created_at      REAL    NOT NULL
             )
         """)
+        # 兼容旧库：如果列不存在则补上
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}
+        if "conversation_id" not in existing:
+            conn.execute("ALTER TABLE conversations ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''")
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_conv_user_time
             ON conversations(user_id, created_at)
