@@ -38,7 +38,7 @@ pipeline {
         )
         string(
             name:         'ERP_BASE_URL',
-            defaultValue: 'http://10.35.121.11:13801',
+            defaultValue: 'http://10.35.121.11:10101',
             description:  'ERP 后端地址'
         )
         string(
