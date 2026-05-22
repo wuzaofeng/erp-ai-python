@@ -118,7 +118,7 @@ pipeline {
 
                         docker login ${HARBOR_URL.tokenize('/')[0]} -u ${HARBOR_USER} -p ${HARBOR_PASS}
 
-                        docker build --no-cache --pull \
+                        docker build --no-cache \
                             --build-arg ENV=${params.ENV} \
                             -t ${env.FULL_IMAGE} .
                         echo "镜像构建完成: ${env.FULL_IMAGE}"
