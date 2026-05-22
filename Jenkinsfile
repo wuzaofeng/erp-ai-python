@@ -28,7 +28,7 @@ pipeline {
         )
         string(
             name:         'PORT',
-            defaultValue: '3001',
+            defaultValue: '10107',
             description:  '服务暴露端口'
         )
         string(
