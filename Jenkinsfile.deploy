@@ -139,6 +139,7 @@ pipeline {
                                 -e ENABLE_ENCRYPTION=${params.ENABLE_ENCRYPTION} \\
                                 -e TZ=Asia/Shanghai \\
                                 -v ${params.DATA_DIR}:/app/data \\
+                                -v ${params.DATA_DIR}/chroma-cache:/root/.cache/chroma \\
                                 --log-opt max-size=100m \\
                                 --log-opt max-file=3 \\
                                 --restart=always \\
