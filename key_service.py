@@ -1,24 +1,27 @@
 """
-用户 Key 存储服务 - AES-256-GCM 加密，持久化到 SQLite
+用户 Key 存储服务 - 持久化到 SQLite，加密可通过 ENABLE_ENCRYPTION 配置
 """
 import os
 import re
 import time
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import secrets
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from db import get_conn
 
 # ===================== 加密配置 =====================
 
+# ENABLE_ENCRYPTION=true 时启用 AES-256-GCM，否则明文存储
+_ENABLE_ENCRYPTION = os.getenv("ENABLE_ENCRYPTION", "false").lower() == "true"
 _ENCRYPTION_SECRET = os.getenv("ENCRYPTION_SECRET", "default-secret-key-change-me-32ch")
-_raw = _ENCRYPTION_SECRET.ljust(32, "0")[:32]
-_KEY_BYTES = _raw.encode("utf-8")
+_KEY_BYTES = _ENCRYPTION_SECRET.ljust(32, "0")[:32].encode("utf-8")
 
 
 # ===================== 加密/解密 =====================
 
 def _encrypt(plain_text: str) -> str:
+    if not _ENABLE_ENCRYPTION:
+        return plain_text
     iv = secrets.token_bytes(12)
     aesgcm = AESGCM(_KEY_BYTES)
     ct_with_tag = aesgcm.encrypt(iv, plain_text.encode("utf-8"), None)
@@ -28,6 +31,8 @@ def _encrypt(plain_text: str) -> str:
 
 
 def _decrypt(cipher_text: str) -> str:
+    if not _ENABLE_ENCRYPTION:
+        return cipher_text
     parts = cipher_text.split(":")
     if len(parts) != 3:
         raise ValueError("Invalid encrypted format")
@@ -36,8 +41,7 @@ def _decrypt(cipher_text: str) -> str:
     tag = bytes.fromhex(tag_hex)
     cipher = bytes.fromhex(cipher_hex)
     aesgcm = AESGCM(_KEY_BYTES)
-    plain = aesgcm.decrypt(iv, cipher + tag, None)
-    return plain.decode("utf-8")
+    return aesgcm.decrypt(iv, cipher + tag, None).decode("utf-8")
 
 
 # ===================== 公开 API =====================

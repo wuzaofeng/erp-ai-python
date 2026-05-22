@@ -53,6 +53,11 @@ pipeline {
             defaultValue: '64d54315912b60f076c083a59b144581',
             description:  'Key 加密密钥（32位），勿修改否则已存 Key 失效'
         )
+        choice(
+            name:    'ENABLE_ENCRYPTION',
+            choices: ['false', 'true'],
+            description:  '是否启用 API Key 加密存储（false=明文，true=AES-256-GCM）'
+        )
         string(name: 'REMARK', defaultValue: '', description: '备注')
     }
 
@@ -130,7 +135,8 @@ pipeline {
                                 -e ERP_BASE_URL=${params.ERP_BASE_URL} \\
                                 -e DEFAULT_MODEL=${params.DEFAULT_MODEL} \\
                                 -e MAX_TOOL_ROUNDS=${params.MAX_TOOL_ROUNDS} \\
-                                -e ENCRYPTION_SECRET=${params.ENCRYPTION_SECRET} \\
+                                -e ENCRYPTION_SECRET=${params.ENCRYPTION_SECRET} \
+                                -e ENABLE_ENCRYPTION=${params.ENABLE_ENCRYPTION} \\
                                 -e TZ=Asia/Shanghai \\
                                 -v ${params.DATA_DIR}:/app/data \\
                                 --log-opt max-size=100m \\
