@@ -51,14 +51,14 @@ class AmountUnitRule(ReflectionRule):
         has_no_rows = not result.get("rows")
         has_amount_filter = any(
             "amount" in str(f.get("field", "")).lower()
-            for f in query.get("filters", [])
+            for f in (query.get("filters") or [])
         )
         return has_no_rows and has_amount_filter
 
     async def apply(self, query: dict, result: dict, table_meta: dict) -> QueryAdjustment:
         for field_meta in table_meta.get("fields", []):
             if "amount" in field_meta.get("name", "").lower() and field_meta.get("unit") == "fen":
-                for f in query.get("filters", []):
+                for f in (query.get("filters") or []):
                     if "amount" in str(f.get("field", "")).lower():
                         original = f.get("value")
                         return QueryAdjustment(
@@ -85,12 +85,12 @@ class DateFormatRule(ReflectionRule):
         has_no_rows = not result.get("rows")
         has_date_filter = any(
             "date" in str(f.get("field", "")).lower() or "time" in str(f.get("field", "")).lower()
-            for f in query.get("filters", [])
+            for f in (query.get("filters") or [])
         )
         return has_no_rows and has_date_filter
 
     async def apply(self, query: dict, result: dict, table_meta: dict) -> QueryAdjustment:
-        for f in query.get("filters", []):
+        for f in (query.get("filters") or []):
             field_name = str(f.get("field", ""))
             if "date" not in field_name.lower() and "time" not in field_name.lower():
                 continue
@@ -141,7 +141,7 @@ class MetaCognition:
                         adjustment=adjustment,
                         confidence=rule.confidence,
                     )
-            except ValueError:
+            except (ValueError, TypeError, AttributeError):
                 continue
 
         if self.llm:
