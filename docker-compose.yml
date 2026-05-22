@@ -1,0 +1,17 @@
+services:
+  erp-ai:
+    build: .
+    container_name: erp-ai-python
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      # 持久化 SQLite 和 ChromaDB 数据，容器重建不丢失
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - ENV=production
+    extra_hosts:
+      # 让容器能访问宿主机上的 ERP（如 ERP_BASE_URL 指向内网 IP 则不需要此条）
+      - "host.docker.internal:host-gateway"
