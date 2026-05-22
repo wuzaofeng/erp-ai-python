@@ -98,7 +98,7 @@ pipeline {
                 checkout scmGit(
                     branches: [[name: "${env.APP_BRANCH}"]],
                     userRemoteConfigs: [[
-                        credentialsId: 'gitlab-ssh-key',
+                        credentialsId: 'jenkins-10.35.121.11@zuru.com',
                         url: "${env.REPO_URL}"
                     ]]
                 )
