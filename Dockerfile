@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM 10.35.120.68:5000/library/python:3.11-slim
 
 WORKDIR /app
 
