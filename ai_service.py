@@ -523,7 +523,7 @@ async def test_openrouter_key(key: str) -> dict:
     try:
         model = ChatOpenAI(
             api_key=key,
-            model="openai/gpt-4o-mini",
+            model="deepseek/deepseek-chat",
             max_tokens=5,
             base_url="https://openrouter.ai/api/v1",
         )
