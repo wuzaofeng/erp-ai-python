@@ -476,7 +476,7 @@ async def chat_with_ai(
                         f"本次查询数据获取失败。你必须：\n"
                         f"1. 直接告知用户查询失败及原因\n"
                         f"2. 严禁使用对话历史中任何数字或数据作为本次查询结果\n"
-                        f"3. 严禁编造任何记录数量（如"共 X 位员工"等）\n"
+                        f"3. 严禁编造任何记录数量（如'共 X 位员工'等）\n"
                         f"4. 不得给出任何业务数据结论"
                     )
                     messages.append(ToolMessage(content=forced_err_content, tool_call_id=tool_call_id))
