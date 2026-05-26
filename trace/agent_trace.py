@@ -39,6 +39,7 @@ class AgentRunTrace:
     steps: list[TraceStep] = field(default_factory=list)
     total_tokens: int = 0
     status: str = "running"  # running, completed, failed
+    system_prompt: str = ""
 
     def add_step(self, step_type: StepType, name: str, **kwargs) -> None:
         self.steps.append(TraceStep(
@@ -54,17 +55,46 @@ class AgentTraceService:
     def __init__(self):
         self._traces: dict[str, AgentRunTrace] = {}
 
-    def start_trace(self, user_message: str, intent: str = "pending", conversation_id: str = "") -> str:
+    def start_trace(self, user_message: str, intent: str = "pending", conversation_id: str = "", system_prompt: str = "") -> str:
         run_id = f"run_{uuid.uuid4().hex[:12]}"
         trace = AgentRunTrace(
             run_id=run_id,
             user_message=user_message,
             intent=intent,
             start_time=datetime.now().isoformat(),
+            system_prompt=system_prompt,
         )
         trace.conversation_id = conversation_id
         self._traces[run_id] = trace
         return run_id
+
+    def log_llm(self, run_id: str, round_n: int, model: str, reasoning: str, tool_calls: list, tokens: dict) -> None:
+        """记录每轮 LLM 调用：推理文本、使用模型、token 用量"""
+        trace = self._traces.get(run_id)
+        if not trace:
+            return
+        trace.add_step(
+            StepType.AGENT,
+            f"LLM Round {round_n} [{model}]",
+            input_data={"round": round_n, "model": model},
+            output_data={
+                "reasoning": reasoning or None,
+                "tool_calls": [
+                    {"name": tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", ""),
+                     "args": tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})}
+                    for tc in tool_calls
+                ] if tool_calls else [],
+            },
+            metadata={"tokens": tokens} if tokens else {},
+        )
+        # 累加 token 到 trace
+        if tokens:
+            trace.total_tokens += tokens.get("total_tokens", 0)
+
+    def set_system_prompt(self, run_id: str, system_prompt: str) -> None:
+        trace = self._traces.get(run_id)
+        if trace:
+            trace.system_prompt = system_prompt
 
     def log_tool(self, run_id: str, tool_name: str, params: dict, result: Any, erp_cookie: str = "", erp_auth: str = "") -> None:
         trace = self._traces.get(run_id)
@@ -95,10 +125,23 @@ class AgentTraceService:
         if tool_name == "query_erp_list":
             try:
                 from erp_client import _build_common_query_body, ERP_BASE_URL
-                erp_body = _build_common_query_body(params)
-                api_segment = (params.get("apiPath") or "FormCommon").strip() or "FormCommon"
+                from tools.common_query import _lookup_catalog_params
+                table_name = params.get("tableName", "")
+                catalog_api_path, catalog_extra_body, catalog_body_mode = _lookup_catalog_params(table_name)
+                resolved_params = dict(params)
+                resolved_params["apiPath"]   = catalog_api_path
+                resolved_params["extraBody"] = catalog_extra_body or {}
+                resolved_params["bodyMode"]  = catalog_body_mode
+                erp_body = _build_common_query_body(resolved_params)
+                api_path = (catalog_api_path or "").strip()
+                if not api_path:
+                    url = f"{ERP_BASE_URL}/gw/api/ERP/FormCommon/CommonQuery"
+                elif "/" in api_path:
+                    url = f"{ERP_BASE_URL}/gw/api/ERP/{api_path}"
+                else:
+                    url = f"{ERP_BASE_URL}/gw/api/ERP/{api_path}/CommonQuery"
                 metadata["erp_request"] = {
-                    "url": f"{ERP_BASE_URL}/gw/api/ERP/{api_segment}/CommonQuery",
+                    "url": url,
                     "method": "POST",
                     "body": erp_body,
                 }
@@ -180,8 +223,8 @@ class AgentTraceService:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO agent_traces
-                        (run_id, user_id, conversation_id, user_message, status, step_count, duration_ms, steps, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (run_id, user_id, conversation_id, user_message, status, step_count, duration_ms, steps, system_prompt, total_tokens, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         trace.run_id,
@@ -192,6 +235,8 @@ class AgentTraceService:
                         summary["step_count"],
                         summary.get("duration_ms"),
                         json.dumps(summary["steps"], ensure_ascii=False),
+                        trace.system_prompt or "",
+                        trace.total_tokens,
                         time.time(),
                     ),
                 )
@@ -220,6 +265,8 @@ class AgentTraceService:
             "step_count": len(trace.steps),
             "status": trace.status,
             "duration_ms": duration_ms,
+            "total_tokens": trace.total_tokens,
+            "system_prompt": trace.system_prompt or "",
         }
         if slim:
             return base

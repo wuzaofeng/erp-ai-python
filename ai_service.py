@@ -192,6 +192,7 @@ async def chat_with_ai(
         nav_index=request.get("navIndex"),
         query_state=current_query_state,
     )
+    trace_service.set_system_prompt(run_id, system_prompt_text)
     # 刷新时强制重复上次查询，不走翻页逻辑
     is_refresh = request.get("is_refresh", False)
     user_message_content = request["message"]
@@ -239,6 +240,18 @@ async def chat_with_ai(
         logger.ai(
             "LangChain",
             f"← 第 {round_n} 轮响应 [{used_model}] | tool_calls={len(tool_calls)} | 耗时={t()}ms",
+        )
+        _usage = getattr(ai_response, "usage_metadata", None) or {}
+        _tokens = {
+            "input_tokens": _usage.get("input_tokens", 0),
+            "output_tokens": _usage.get("output_tokens", 0),
+            "total_tokens": _usage.get("total_tokens", 0),
+        } if _usage else {}
+        trace_service.log_llm(
+            run_id, round_n, used_model,
+            reasoning=extract_text(ai_response.content),
+            tool_calls=tool_calls,
+            tokens=_tokens,
         )
 
         # ---- 无 tool calls → AI 直接回答 ----

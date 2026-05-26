@@ -93,9 +93,20 @@ def init_db() -> None:
                 step_count      INTEGER NOT NULL DEFAULT 0,
                 duration_ms     INTEGER,
                 steps           TEXT NOT NULL DEFAULT '[]',
+                system_prompt   TEXT NOT NULL DEFAULT '',
+                total_tokens    INTEGER NOT NULL DEFAULT 0,
                 created_at      REAL NOT NULL
             )
         """)
+        # 兼容旧库：按需补列
+        for _col, _ddl in [
+            ("system_prompt", "ALTER TABLE agent_traces ADD COLUMN system_prompt TEXT NOT NULL DEFAULT ''"),
+            ("total_tokens",  "ALTER TABLE agent_traces ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(_ddl)
+            except Exception:
+                pass
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_traces_user_time
             ON agent_traces(user_id, created_at)
@@ -108,10 +119,16 @@ def init_db() -> None:
                 module_name TEXT NOT NULL DEFAULT '',
                 api_path    TEXT NOT NULL DEFAULT '',
                 extra_body  TEXT NOT NULL DEFAULT '',
+                body_mode   TEXT NOT NULL DEFAULT 'merge',
                 enabled     INTEGER NOT NULL DEFAULT 1,
                 created_at  REAL NOT NULL
             )
         """)
+        # 兼容旧库：按需补列
+        try:
+            conn.execute("ALTER TABLE erp_form_catalog ADD COLUMN body_mode TEXT NOT NULL DEFAULT 'merge'")
+        except Exception:
+            pass
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_catalog_enabled
             ON erp_form_catalog(enabled)
