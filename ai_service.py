@@ -463,10 +463,42 @@ async def chat_with_ai(
                 else:
                     messages.append(ToolMessage(content=raw_tool_result, tool_call_id=tool_call_id))
             else:
-                messages.append(ToolMessage(content=raw_tool_result, tool_call_id=tool_call_id))
+                # 检测工具是否返回了 error 字段，是则注入强制报错指令，防止 AI 用历史数据幻觉
+                try:
+                    _err_parsed = json.loads(raw_tool_result) if raw_tool_result.strip().startswith("{") else {}
+                    _err_msg = _err_parsed.get("error") if isinstance(_err_parsed, dict) else None
+                except Exception:
+                    _err_msg = None
+                if _err_msg:
+                    forced_err_content = (
+                        f"【工具调用失败 - 系统强制指令】\n"
+                        f"工具 {tool_name} 返回错误：{_err_msg}\n"
+                        f"本次查询数据获取失败。你必须：\n"
+                        f"1. 直接告知用户查询失败及原因\n"
+                        f"2. 严禁使用对话历史中任何数字或数据作为本次查询结果\n"
+                        f"3. 严禁编造任何记录数量（如"共 X 位员工"等）\n"
+                        f"4. 不得给出任何业务数据结论"
+                    )
+                    messages.append(ToolMessage(content=forced_err_content, tool_call_id=tool_call_id))
+                    trace_service.log_reflection(
+                        run_id,
+                        f"工具 {tool_name} 返回错误，已拦截并注入强制报错指令",
+                        {"tool": tool_name, "error": _err_msg, "action": "error_intercept"},
+                    )
+                else:
+                    messages.append(ToolMessage(content=raw_tool_result, tool_call_id=tool_call_id))
 
     # ---- 6. 如果调用了工具：streaming 输出最终回答 ----
     if tools_were_called:
+        # 检查本轮是否有工具返回了 error（用于最终摘要注入额外禁令）
+        _has_tool_error = any(
+            isinstance(m, ToolMessage) and "【工具调用失败" in (m.content or "")
+            for m in messages
+        )
+        _summary_extra = (
+            "\n\n【强制】本轮有工具调用失败，必须如实告知用户查询失败，严禁输出任何具体数字或业务数据结论。"
+            if _has_tool_error else ""
+        )
         messages.append(HumanMessage(content=(
             "原始数据表格已通过 erp.data 事件直接推送给前端展示，用户已经可以看到完整的数据表格。\n\n"
             "现在请你只做【文字分析摘要】，规则如下：\n"
@@ -474,7 +506,7 @@ async def chat_with_ai(
             "2. 用 1~3 句话说明查询结果的关键信息（如总数、范围、特殊情况等）\n"
             "3. 如有需要，用 **加粗** 突出关键数字或结论\n"
             "4. 如有异常（空结果、条件过严等）给出建议\n"
-            "5. 所有数字、编码、名称必须来自工具返回的真实数据，禁止编造\n"
+            f"5. 所有数字、编码、名称必须来自工具返回的真实数据，禁止编造{_summary_extra}\n"
         )))
 
         t2 = start_timer()
@@ -507,6 +539,8 @@ async def chat_with_ai(
 
     # ---- 7. 收尾：保存 Memory + 更新 userPreference ----
     final_answer = "".join(accumulated_answer)
+    if final_answer:
+        trace_service.log_agent(run_id, "FinalAnswer", input_data=None, output_data=final_answer)
     if final_answer:
         append_assistant_message(user_id, final_answer, conv_id)
         logger.ai("Memory", f"AI 回复已保存到 Memory | userId={user_id} | 字符={len(final_answer)}")
