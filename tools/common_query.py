@@ -99,10 +99,10 @@ def create_common_query_tool(erp_cookie: str, erp_auth: str, user_id: str = "") 
             for f in raw_filters
         ]
 
-        # 从 DB 目录自动补全 apiPath / extraBody，DB 配置优先于 AI 传参
+        # apiPath / extraBody 完全由 DB 目录决定，忽略 AI 传参
         catalog_api_path, catalog_extra_body = _lookup_catalog_params(tableName)
-        resolved_api_path   = catalog_api_path   or apiPath
-        resolved_extra_body = catalog_extra_body or extraBody or {}
+        resolved_api_path   = catalog_api_path
+        resolved_extra_body = catalog_extra_body or {}
 
         params = {
             "tableName": tableName,
