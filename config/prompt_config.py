@@ -1,9 +1,13 @@
 """
 AI System Prompt 配置文件 - 对应 src/config/promptConfig.ts
 """
+import os
 from typing import Optional
 from config.table_catalog import ERP_TABLE_CATALOG as _STATIC_CATALOG
 from logger import logger
+
+# STATIC_CATALOG_FALLBACK=true 时，动态目录为空才降级用静态配置；默认 false（不降级）
+_STATIC_FALLBACK = os.getenv("STATIC_CATALOG_FALLBACK", "false").lower() == "true"
 
 # ===================== 2. AI 行为约束规则 =====================
 BEHAVIOR_RULES = """
@@ -123,7 +127,7 @@ def _build_catalog_from_db() -> str:
         conn.close()
 
         if not rows:
-            return _STATIC_CATALOG
+            return _STATIC_CATALOG if _STATIC_FALLBACK else ""
 
         lines = [
             "| 业务模块 | TableName | 常用字段说明 | 特殊参数 |",
