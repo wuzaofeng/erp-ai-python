@@ -1,22 +1,11 @@
-"""一次性迁移脚本：从 tableCatalog.ts 导入 erp_form_catalog"""
-import json
+"""批量导入 ERP 表目录：从 config/table_catalog.py 的静态配置写入 erp_form_catalog 表"""
 import re
 import time
+from config.table_catalog import ERP_TABLE_CATALOG, FORM_CODE_CONFIG
 
-TS_FILE = r"C:\WorkSpace\erp-ai-nodejs\src\config\tableCatalog.ts"
-
-with open(TS_FILE, encoding="utf-8") as f:
-    content = f.read()
-
-# 提取 ERP_TABLE_CATALOG Markdown
-BT = "\x60"
-i1 = content.index("ERP_TABLE_CATALOG = " + BT) + len("ERP_TABLE_CATALOG = " + BT)
-i2 = content.index(BT + ";", i1)
-catalog_str = content[i1:i2]
-
-# 解析 Markdown 表格
-rows = []
-for line in catalog_str.splitlines():
+# 解析 Markdown 表格中的 module_name、table_name、special 列
+_catalog_map: dict[str, dict] = {}
+for line in ERP_TABLE_CATALOG.splitlines():
     line = line.strip()
     if not line.startswith("|") or "|---" in line or "业务模块" in line:
         continue
@@ -26,31 +15,37 @@ for line in catalog_str.splitlines():
         continue
     module_name = parts[0]
     table_name  = parts[1]
-    form_code   = table_name.split(".")[0] if "." in table_name else table_name
+    special     = parts[3] if len(parts) >= 4 else ""
 
     api_path   = ""
     extra_body = ""
-    if len(parts) >= 4:
-        special = parts[3]
-        m = re.search(r"apiPath=([^\]\s,]+)", special)
-        if m:
-            api_path = m.group(1)
-        m = re.search(r"extraBody=(\{.+?\})", special)
-        if m:
-            extra_body = m.group(1)
+    m = re.search(r"apiPath=([^\]\s,]+)", special)
+    if m:
+        api_path = m.group(1)
+    m = re.search(r"extraBody=(\{.+?\})", special)
+    if m:
+        extra_body = m.group(1)
 
-    rows.append((form_code, module_name, api_path, extra_body))
+    _catalog_map[table_name] = {
+        "module_name": module_name,
+        "api_path": api_path,
+        "extra_body": extra_body,
+    }
 
-print(f"解析到 {len(rows)} 条")
-
-# 写入 SQLite
+# 以 FORM_CODE_CONFIG 为主键，补充 module_name 等信息
 from db import get_conn
 conn = get_conn()
 now = time.time()
 inserted = 0
 skipped  = 0
 with conn:
-    for form_code, module_name, api_path, extra_body in rows:
+    for table_key, cfg in FORM_CODE_CONFIG.items():
+        form_code = cfg["formCode"]
+        meta = _catalog_map.get(table_key, {})
+        module_name = meta.get("module_name", "")
+        api_path    = meta.get("api_path", "")
+        extra_body  = meta.get("extra_body", "")
+
         existing = conn.execute(
             "SELECT 1 FROM erp_form_catalog WHERE form_code = ?", (form_code,)
         ).fetchone()
@@ -66,4 +61,4 @@ with conn:
         inserted += 1
 
 conn.close()
-print(f"导入完成：新增 {inserted} 条，跳过（已存在）{skipped} 条")
+print(f"导入完成：新增 {inserted} 条，跳过（已存在）{skipped} 条，共 {inserted + skipped} 条")
