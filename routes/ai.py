@@ -443,6 +443,32 @@ def list_traces_endpoint(
     }
 
 
+@router.get("/traces/conversation/{conversation_id}")
+def get_conversation_traces_endpoint(conversation_id: str):
+    """查询整个会话的所有 Trace（含完整 steps），用于一键复制诊断"""
+    from db import get_conn
+    import json as _json
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT * FROM agent_traces
+        WHERE conversation_id = ?
+        ORDER BY created_at ASC
+        """,
+        (conversation_id,),
+    ).fetchall()
+    conn.close()
+    result = []
+    for row in rows:
+        data = dict(row)
+        try:
+            data["steps"] = _json.loads(data["steps"])
+        except Exception:
+            data["steps"] = []
+        result.append(data)
+    return {"conversation_id": conversation_id, "trace_count": len(result), "traces": result}
+
+
 @router.get("/traces/{run_id}")
 def get_trace_endpoint(run_id: str):
     """查询单条 Trace 完整 steps 详情"""
