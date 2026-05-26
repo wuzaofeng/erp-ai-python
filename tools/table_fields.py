@@ -63,7 +63,9 @@ def create_table_fields_tool(erp_cookie: str, erp_auth: str, user_id: str = "") 
                 (normalized_form_code,),
             ).fetchone()
             _conn.close()
-            table_name = _row["table_name"] if _row and _row["table_name"] else normalized_form_code
+            if not _row or not _row["table_name"]:
+                return f"表单 '{normalized_form_code}' 尚未完成字段同步，请联系管理员在【ERP 表目录管理】中对该表执行 Sync 操作后再试。"
+            table_name = _row["table_name"]
 
             fields = await get_field_layout(
                 table_name=table_name,
