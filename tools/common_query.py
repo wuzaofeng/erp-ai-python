@@ -39,7 +39,14 @@ def _lookup_catalog_params(table_name: str) -> tuple[str | None, dict | None, st
             try:
                 extra_body = json.loads(row["extra_body"])
             except Exception:
-                pass
+                # 兼容单引号写法（如 {'a':1}），用 ast.literal_eval 兜底
+                try:
+                    import ast
+                    extra_body = ast.literal_eval(row["extra_body"])
+                    if not isinstance(extra_body, dict):
+                        extra_body = None
+                except Exception:
+                    logger.warn("CommonQuery", f"extra_body 解析失败，已忽略 | value={row['extra_body']}")
         return api_path, extra_body, body_mode
     except Exception as e:
         logger.warn("CommonQuery", f"catalog 参数查询失败 | {e}")
