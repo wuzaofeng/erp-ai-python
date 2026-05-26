@@ -691,6 +691,58 @@ async def sync_catalog(
     }
 
 
+@router.get("/catalog/export")
+def export_catalog():
+    """导出全部 catalog 条目为 JSON，用于环境间迁移"""
+    from db import get_conn
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT form_code, module_name, api_path, extra_body, enabled FROM erp_form_catalog ORDER BY form_code"
+    ).fetchall()
+    conn.close()
+    return {"catalog": [dict(r) for r in rows], "count": len(rows)}
+
+
+class CatalogImportBody(BaseModel):
+    catalog: list[CatalogCreateBody]
+    overwrite: bool = Field(default=False, description="true=已存在则覆盖，false=跳过")
+
+
+@router.post("/catalog/import")
+def import_catalog(body: CatalogImportBody):
+    """批量导入 catalog 条目，用于环境间迁移"""
+    import time
+    from db import get_conn
+    conn = get_conn()
+    inserted = skipped = updated = 0
+    with conn:
+        for item in body.catalog:
+            existing = conn.execute(
+                "SELECT 1 FROM erp_form_catalog WHERE form_code = ?", (item.form_code,)
+            ).fetchone()
+            if existing:
+                if body.overwrite:
+                    conn.execute(
+                        """UPDATE erp_form_catalog
+                           SET module_name=?, api_path=?, extra_body=?, enabled=?
+                           WHERE form_code=?""",
+                        (item.module_name, item.api_path, item.extra_body, item.enabled, item.form_code),
+                    )
+                    updated += 1
+                else:
+                    skipped += 1
+            else:
+                conn.execute(
+                    """INSERT INTO erp_form_catalog
+                       (form_code, module_name, api_path, extra_body, enabled, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (item.form_code, item.module_name, item.api_path, item.extra_body, item.enabled, time.time()),
+                )
+                inserted += 1
+    conn.close()
+    return {"ok": True, "inserted": inserted, "updated": updated, "skipped": skipped, "total": len(body.catalog)}
+
+
 @router.post("/catalog/sync-all")
 async def sync_all_catalog(
     request: Request,
