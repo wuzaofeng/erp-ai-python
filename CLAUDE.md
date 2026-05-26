@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Coding Rules（编码规范）
+
+所有代码改动必须遵循 `.claude/rules/` 目录下的规范文件：
+
+| 规则文件 | 内容 |
+|---------|------|
+| [WorkflowRules.md](.claude/rules/WorkflowRules.md) | 工作流规范：先出 Spec 再写代码 |
+| [GitBranchRules.md](.claude/rules/GitBranchRules.md) | 分支命名与 Commit 规范 |
+| [CodingStandardRules.md](.claude/rules/CodingStandardRules.md) | Python 编码规范（命名、类型注解、日志等） |
+| [UnitTestRules.md](.claude/rules/UnitTestRules.md) | 单元测试规范（覆盖率 ≥ 90%） |
+| [SecurityRules.md](.claude/rules/SecurityRules.md) | 安全编码规范（输入校验、Key 保护等） |
+| [DesignSpecRules.md](.claude/rules/DesignSpecRules.md) | 设计规范（Spec 模板） |
+
 ## Running the Service
 
 ```bash
