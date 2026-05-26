@@ -30,7 +30,7 @@ pipeline {
         )
         string(
             name:         'DATA_DIR',
-            defaultValue: '/var/lib/jenkins/workspace/erp-ai-python-data',
+            defaultValue: '/ai-data/erp-ai-python',
             description:  '数据持久化目录（SQLite + ChromaDB）'
         )
         string(
