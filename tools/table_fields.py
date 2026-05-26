@@ -48,22 +48,22 @@ def create_table_fields_tool(erp_cookie: str, erp_auth: str, user_id: str = "") 
     async def table_fields_handler(formCode: str) -> str:
         import time
         now = time.time()
-        cached_ts, cached_result = _field_cache.get(formCode, (0.0, ""))
+        normalized_form_code = formCode.split(".")[0]
+        cached_ts, cached_result = _field_cache.get(normalized_form_code, (0.0, ""))
         if cached_result and now - cached_ts < _FIELD_CACHE_TTL:
-            logger.info("TableFields", f"缓存命中 | form={formCode}")
+            logger.info("TableFields", f"缓存命中 | form={normalized_form_code}")
             return cached_result
 
-        logger.info("TableFields", f"获取字段列表 | form={formCode}")
+        logger.info("TableFields", f"获取字段列表 | form={normalized_form_code}")
         try:
-            # 先从 SQLite 查出正确的 table_name
             from db import get_conn as _get_conn
             _conn = _get_conn()
             _row = _conn.execute(
                 "SELECT table_name FROM erp_form_layout_cache WHERE form_code = ?",
-                (formCode,),
+                (normalized_form_code,),
             ).fetchone()
             _conn.close()
-            table_name = _row["table_name"] if _row and _row["table_name"] else formCode
+            table_name = _row["table_name"] if _row and _row["table_name"] else normalized_form_code
 
             fields = await get_field_layout(
                 table_name=table_name,
@@ -72,9 +72,9 @@ def create_table_fields_tool(erp_cookie: str, erp_auth: str, user_id: str = "") 
                 erp_auth=erp_auth,
             )
             if not fields:
-                return f"未找到 '{formCode}' 的字段信息，请确认 formCode 是否正确或先执行 Sync。"
+                return f"未找到 '{normalized_form_code}' 的字段信息，请确认 formCode 是否正确或先执行 Sync。"
 
-            logger.info("TableFields", f"获取到 {len(fields.field_labels)} 个字段 | form={formCode} | table={table_name}")
+            logger.info("TableFields", f"获取到 {len(fields.field_labels)} 个字段 | form={normalized_form_code} | table={table_name}")
             result_str = json.dumps(
                 {
                     "tableName": table_name,
@@ -85,10 +85,10 @@ def create_table_fields_tool(erp_cookie: str, erp_auth: str, user_id: str = "") 
                 ensure_ascii=False,
                 indent=2,
             )
-            _field_cache[formCode] = (now, result_str)
+            _field_cache[normalized_form_code] = (now, result_str)
             return result_str
         except Exception as e:
-            logger.error("TableFields", f"获取字段失败 | form={formCode} | err={e}")
+            logger.error("TableFields", f"获取字段失败 | form={normalized_form_code} | err={e}")
             return f"获取字段列表失败：{str(e)}"
 
     return StructuredTool.from_function(
