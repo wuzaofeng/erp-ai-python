@@ -81,12 +81,10 @@ async def invoke_with_fallback(
     model_name: str,
     tools: list,
     messages: list[BaseMessage],
-) -> tuple[AIMessage, str]:
-    """带降级的 invoke（429 时自动切备用模型）"""
-    if model_name == DEFAULT_MODEL:
-        models_to_try = list(dict.fromkeys([model_name] + MODEL_FALLBACKS))
-    else:
-        models_to_try = [model_name]
+) -> tuple[AIMessage, str, str | None]:
+    """带降级的 invoke，返回 (response, used_model, fallback_error)"""
+    models_to_try = list(dict.fromkeys([model_name] + MODEL_FALLBACKS))
+    last_error_msg: str | None = None
 
     for i, try_model in enumerate(models_to_try):
         try:
@@ -95,13 +93,15 @@ async def invoke_with_fallback(
             model = create_model(api_key, try_model, 0.1)
             model_with_tools = model.bind_tools(tools)
             response = await model_with_tools.ainvoke(messages)
-            return response, try_model  # type: ignore[return-value]
+            return response, try_model, last_error_msg  # type: ignore[return-value]
         except Exception as err:
             status = getattr(err, "status_code", None) or getattr(err, "status", None)
             msg = str(err)
             logger.error("LangChain", f"调用失败 [{try_model}] | status={status} | {msg}")
-            if status == 429 and i < len(models_to_try) - 1:
-                logger.warn("LangChain", "429 限流，尝试下一个备用模型...")
+            if status in (429, 404) and i < len(models_to_try) - 1:
+                reason = "429 限流" if status == 429 else "404 模型不可用"
+                last_error_msg = f"{try_model} {reason}: {msg}"
+                logger.warn("LangChain", f"{reason}，尝试下一个备用模型...")
                 continue
             raise
 
@@ -234,7 +234,8 @@ async def chat_with_ai(
             f"→ Agent Loop 第 {round_n}/{MAX_TOOL_ROUNDS} 轮 | 模型={used_model} | messages={len(messages)}",
         )
 
-        ai_response, used_model = await invoke_with_fallback(
+        prev_model = used_model
+        ai_response, used_model, fallback_error = await invoke_with_fallback(
             openrouter_key, used_model, erp_tools, messages
         )
 
@@ -243,6 +244,11 @@ async def chat_with_ai(
             "LangChain",
             f"← 第 {round_n} 轮响应 [{used_model}] | tool_calls={len(tool_calls)} | 耗时={t()}ms",
         )
+
+        if used_model != prev_model:
+            fallback_hint = f"⚠️ 模型 {prev_model} 不可用，已自动切换至 {used_model}"
+            yield fallback_hint + "\n"
+            trace_service.log_retry(run_id, reason=f"{prev_model} → {used_model}", attempt=round_n, error=fallback_error)
         _usage = getattr(ai_response, "usage_metadata", None) or {}
         _tokens = {
             "input_tokens": _usage.get("input_tokens", 0),
@@ -254,6 +260,7 @@ async def chat_with_ai(
             reasoning=extract_text(ai_response.content),
             tool_calls=tool_calls,
             tokens=_tokens,
+            duration_ms=t(),
         )
 
         # ---- 无 tool calls → AI 直接回答 ----
@@ -358,7 +365,7 @@ async def chat_with_ai(
                 raw_tool_result = json.dumps({"error": f"工具执行失败：{e}"}, ensure_ascii=False)
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
-            trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, erp_cookie=erp_cookie, erp_auth=erp_authorization)
+            trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, erp_cookie=erp_cookie, erp_auth=erp_authorization, duration_ms=t_tool())
             if tool_name in ("query_erp_list", "search_erp_global"):
                 query_erp_called = True
 
@@ -463,6 +470,14 @@ async def chat_with_ai(
                         "RAG",
                         f"上下文构建完成 | isRag={rag_context.is_rag} | 传给AI={rag_context.sent_row_count}行 / 共{len(parsed.rows)}行",
                     )
+                    from rag.context_builder import _extract_keywords
+                    trace_service.log_rag(
+                        run_id,
+                        is_rag=rag_context.is_rag,
+                        total_rows=len(parsed.rows),
+                        sent_rows=rag_context.sent_row_count,
+                        keywords=_extract_keywords(request["message"]),
+                    )
                 else:
                     messages.append(ToolMessage(content=raw_tool_result, tool_call_id=tool_call_id))
             else:
@@ -561,17 +576,17 @@ async def chat_with_ai(
 
 # ===================== Key 测试 =====================
 
-async def test_openrouter_key(key: str) -> dict:
-    """测试 OpenRouter Key 是否有效"""
+async def test_openrouter_key(key: str, model_name: str = "deepseek/deepseek-chat") -> dict:
+    """测试 OpenRouter Key 及指定模型是否可用"""
     try:
         model = ChatOpenAI(
             api_key=key,
-            model="deepseek/deepseek-chat",
+            model=model_name,
             max_tokens=5,
             base_url="https://openrouter.ai/api/v1",
         )
         await model.ainvoke([HumanMessage(content="hi")])
-        return {"valid": True, "message": "Key 验证成功，可以正常使用"}
+        return {"valid": True, "message": f"连接成功，模型 {model_name} 可正常使用"}
     except Exception as error:
         status = getattr(error, "status_code", None) or getattr(error, "status", None)
         if status == 401:

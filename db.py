@@ -59,9 +59,14 @@ def init_db() -> None:
                 frequent_tables     TEXT NOT NULL DEFAULT '[]',
                 frequent_filters    TEXT NOT NULL DEFAULT '[]',
                 preferred_page_size INTEGER NOT NULL DEFAULT 20,
+                preferred_model     TEXT NOT NULL DEFAULT '',
                 updated_at          REAL    NOT NULL
             )
         """)
+        try:
+            conn.execute("ALTER TABLE user_preference ADD COLUMN preferred_model TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
 
         # ---- Skills 表 ----
         conn.execute("""

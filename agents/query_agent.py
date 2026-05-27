@@ -46,7 +46,6 @@ class QueryAgent(BaseAgent):
         request = full_request or {
             "message": message,
             "pageContext": self.erp_config.get("pageContext"),
-            "model": os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini"),
             "skillKey": None,
             "skill": None,
             "navIndex": None,

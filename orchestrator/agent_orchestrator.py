@@ -104,9 +104,12 @@ class AgentOrchestrator:
     async def _simple_answer(self, message: str) -> AsyncGenerator[str, None]:
         from langchain_openai import ChatOpenAI
         from langchain_core.messages import SystemMessage, HumanMessage
+        from memory.user_preference import get_user_model
+        user_id = self.erp_config.get("user_id", "")
+        model = get_user_model(user_id) or os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini")
         llm = ChatOpenAI(
             api_key=self.api_key,
-            model=os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini"),
+            model=model,
             temperature=0.3,
             base_url="https://openrouter.ai/api/v1",
         )

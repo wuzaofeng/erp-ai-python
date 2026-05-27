@@ -191,6 +191,27 @@ def get_preference(user_id: str) -> Optional[UserPreference]:
     return pref if (pref.frequentTables or pref.frequentFilters) else None
 
 
+def get_user_model(user_id: str) -> str:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT preferred_model FROM user_preference WHERE user_id=?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return (row["preferred_model"] or "") if row else ""
+
+
+def set_user_model(user_id: str, model: str) -> None:
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "INSERT INTO user_preference(user_id, frequent_tables, frequent_filters, preferred_page_size, preferred_model, updated_at) "
+            "VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET preferred_model=excluded.preferred_model, updated_at=excluded.updated_at",
+            (user_id, "[]", "[]", 20, model, time.time()),
+        )
+    conn.close()
+    logger.info("Preference", f"用户模型偏好已更新 | userId={user_id} | model={model}")
+
+
 def clear_preference(user_id: str) -> None:
     conn = get_conn()
     with conn:

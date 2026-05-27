@@ -20,7 +20,7 @@ from security.human_in_loop import human_in_loop
 from security.rate_limiter import limiter
 from config.skills import list_skills, get_skill_by_key, create_skill, update_skill, delete_skill
 from memory.conversation_memory import clear_history, get_memory_stats
-from memory.user_preference import clear_preference, get_preference
+from memory.user_preference import clear_preference, get_preference, get_user_model, set_user_model
 from cache.query_cache import get_cache_stats, clear_all_cache
 
 router = APIRouter(prefix="/api/ai")
@@ -47,6 +47,75 @@ class ChatRequestBody(BaseModel):
 class SaveKeyRequest(BaseModel):
     openrouterKey: str
     userId: str
+
+
+class SetModelRequest(BaseModel):
+    model: str = Field(min_length=1, max_length=200)
+    userId: str = Field(min_length=1, max_length=128)
+
+
+# ===================== 可用模型列表 =====================
+
+_AVAILABLE_MODELS = [
+    # DeepSeek —— 中文强、工具调用稳定、性价比高
+    {"id": "deepseek/deepseek-chat",        "name": "DeepSeek V3",            "provider": "DeepSeek",   "price_input": 0.23,  "price_output": 0.91},
+    {"id": "deepseek/deepseek-chat-v3.1",   "name": "DeepSeek V3.1",          "provider": "DeepSeek",   "price_input": 0.21,  "price_output": 0.79},
+    {"id": "deepseek/deepseek-r1-0528",     "name": "DeepSeek R1 (推理)",     "provider": "DeepSeek",   "price_input": 0.50,  "price_output": 2.15},
+    # OpenAI —— 工具调用最稳定、英文场景强
+    {"id": "openai/gpt-4o-mini",            "name": "GPT-4o Mini",            "provider": "OpenAI",     "price_input": 0.15,  "price_output": 0.60},
+    {"id": "openai/gpt-4o",                 "name": "GPT-4o",                 "provider": "OpenAI",     "price_input": 2.50,  "price_output": 10.00},
+    {"id": "openai/gpt-4.1-mini",           "name": "GPT-4.1 Mini",           "provider": "OpenAI",     "price_input": 0.40,  "price_output": 1.60},
+    # Anthropic —— 指令遵循最强、复杂推理好
+    {"id": "anthropic/claude-sonnet-4.5",   "name": "Claude Sonnet 4.5",      "provider": "Anthropic",  "price_input": 3.00,  "price_output": 15.00},
+    {"id": "anthropic/claude-haiku-4.5",    "name": "Claude Haiku 4.5",       "provider": "Anthropic",  "price_input": 1.00,  "price_output": 5.00},
+    # Google —— 速度最快、长上下文、工具调用准确
+    {"id": "google/gemini-2.5-flash",       "name": "Gemini 2.5 Flash",       "provider": "Google",     "price_input": 0.30,  "price_output": 2.50},
+    {"id": "google/gemini-2.0-flash-001",   "name": "Gemini 2.0 Flash",       "provider": "Google",     "price_input": 0.10,  "price_output": 0.40},
+    {"id": "google/gemini-3-flash-preview", "name": "Gemini 3 Flash Preview", "provider": "Google",     "price_input": 0.50,  "price_output": 3.00},
+    # Qwen —— 中文最强、国内访问稳定
+    {"id": "qwen/qwen3-235b-a22b",          "name": "Qwen3 235B",             "provider": "Qwen",       "price_input": 0.46,  "price_output": 1.82},
+    {"id": "qwen/qwen3.5-flash-02-23",      "name": "Qwen3.5 Flash",          "provider": "Qwen",       "price_input": 0.07,  "price_output": 0.26},
+    # Kimi —— 长文本理解强、中文母语级
+    {"id": "moonshotai/kimi-k2",            "name": "Kimi K2",                "provider": "Kimi",       "price_input": 0.73,  "price_output": 3.49},
+]
+
+
+@router.get("/models")
+async def list_models(userId: Optional[str] = Query(default=None)):
+    """返回可用模型列表及当前用户选择的模型"""
+    current = (get_user_model(userId) if userId else "") or DEFAULT_MODEL
+    return {
+        "models": _AVAILABLE_MODELS,
+        "current": current,
+        "default": DEFAULT_MODEL,
+    }
+
+
+@router.post("/user-model")
+async def set_model(body: SetModelRequest):
+    """保存用户选择的模型"""
+    valid_ids = {m["id"] for m in _AVAILABLE_MODELS}
+    if body.model not in valid_ids:
+        raise HTTPException(status_code=400, detail=f"不支持的模型: {body.model}")
+    set_user_model(body.userId, body.model)
+    return {"model": body.model, "message": "模型偏好已保存"}
+
+
+class TestModelRequest(BaseModel):
+    userId: str = Field(min_length=1, max_length=128)
+    model: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/test-model")
+async def test_model(body: TestModelRequest):
+    """测试指定模型是否可连通"""
+    openrouter_key = get_user_key(body.userId)
+    if not openrouter_key:
+        raise HTTPException(status_code=400, detail="未配置 API Key")
+    result = await test_openrouter_key(openrouter_key, body.model)
+    if not result["valid"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return {"success": True, "message": result["message"]}
 
 
 # ===================== POST /api/ai/chat =====================
@@ -91,7 +160,7 @@ async def chat_endpoint(
             },
         )
 
-    model_name = body.model or DEFAULT_MODEL
+    model_name = body.model or get_user_model(user_id) or DEFAULT_MODEL
     msg_preview = body.message[:60] + "..." if len(body.message) > 60 else body.message
     logger.info("Chat", f"用户={user_id} | 页面={body.pageContext or '-'} | 消息=\"{msg_preview}\"")
 
@@ -125,7 +194,7 @@ async def chat_endpoint(
         request_dict = {
             "message": body.message,
             "pageContext": body.pageContext,
-            "model": body.model,
+            "model": model_name,
             "skillKey": body.skillKey,
             "skill": body.skill,
             "navIndex": body.navIndex,

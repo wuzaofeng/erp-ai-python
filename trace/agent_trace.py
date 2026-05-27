@@ -27,6 +27,7 @@ class TraceStep:
     metadata: dict = field(default_factory=dict)
     confidence: Optional[float] = None
     error: Optional[str] = None
+    duration_ms: Optional[int] = None
 
 
 @dataclass
@@ -68,7 +69,7 @@ class AgentTraceService:
         self._traces[run_id] = trace
         return run_id
 
-    def log_llm(self, run_id: str, round_n: int, model: str, reasoning: str, tool_calls: list, tokens: dict) -> None:
+    def log_llm(self, run_id: str, round_n: int, model: str, reasoning: str, tool_calls: list, tokens: dict, duration_ms: Optional[int] = None) -> None:
         """记录每轮 LLM 调用：推理文本、使用模型、token 用量"""
         trace = self._traces.get(run_id)
         if not trace:
@@ -86,6 +87,7 @@ class AgentTraceService:
                 ] if tool_calls else [],
             },
             metadata={"tokens": tokens} if tokens else {},
+            duration_ms=duration_ms,
         )
         # 累加 token 到 trace
         if tokens:
@@ -96,7 +98,7 @@ class AgentTraceService:
         if trace:
             trace.system_prompt = system_prompt
 
-    def log_tool(self, run_id: str, tool_name: str, params: dict, result: Any, erp_cookie: str = "", erp_auth: str = "") -> None:
+    def log_tool(self, run_id: str, tool_name: str, params: dict, result: Any, erp_cookie: str = "", erp_auth: str = "", duration_ms: Optional[int] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
@@ -165,13 +167,21 @@ class AgentTraceService:
             input_data=params,
             output_data=output_data,
             metadata=metadata,
+            duration_ms=duration_ms,
         )
 
-    def log_retry(self, run_id: str, reason: str, attempt: int) -> None:
+    def log_retry(self, run_id: str, reason: str, attempt: int, error: Optional[str] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
-        trace.add_step(StepType.RETRY, f"Retry #{attempt}", input_data=reason)
+        parts = reason.split(" → ")
+        trace.add_step(
+            StepType.RETRY,
+            f"ModelFallback #{attempt}",
+            input_data={"from": parts[0] if len(parts) == 2 else reason},
+            output_data={"to": parts[1] if len(parts) == 2 else None},
+            metadata={"reason": "model_unavailable", "error": error},
+        )
 
     def log_route(self, run_id: str, result: dict) -> None:
         trace = self._traces.get(run_id)
@@ -190,6 +200,18 @@ class AgentTraceService:
         if not trace:
             return
         trace.add_step(StepType.AGENT, agent_name, input_data=input_data, output_data=output_data)
+
+    def log_rag(self, run_id: str, is_rag: bool, total_rows: int, sent_rows: int, keywords: list[str]) -> None:
+        trace = self._traces.get(run_id)
+        if not trace:
+            return
+        trace.add_step(
+            StepType.ANALYSIS,
+            "RAG",
+            input_data={"total_rows": total_rows, "keywords": keywords},
+            output_data={"is_rag": is_rag, "sent_rows": sent_rows},
+            metadata={"compressed": is_rag, "drop_count": total_rows - sent_rows},
+        )
 
     def log_reflection(self, run_id: str, reason: str, adjustment: Optional[dict] = None) -> None:
         trace = self._traces.get(run_id)
@@ -278,6 +300,7 @@ class AgentTraceService:
                     "type": s.type,
                     "name": s.name,
                     "timestamp": s.timestamp,
+                    "duration_ms": s.duration_ms,
                     "input": s.input_data,
                     "output": s.output_data,
                     "metadata": s.metadata or {},
