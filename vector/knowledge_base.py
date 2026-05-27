@@ -22,7 +22,7 @@ _COLLECTION_NAME = "knowledge_base"
 _DOCS_DIR = Path(os.getenv("KNOWLEDGE_DOCS_DIR", "docs/knowledge"))
 _CHUNK_SIZE = 500       # 每块最大字符数
 _CHUNK_OVERLAP = 50     # 块与块之间的重叠字符数
-_SCORE_THRESHOLD = 0.3  # 相似度阈值（text-embedding-3-small 中文相似度普遍偏低）
+_SCORE_THRESHOLD = 0.15  # 相似度阈值（text-embedding-3-small 中文相似度普遍偏低，实测最高约 0.28）
 
 
 # ===================== 文档切块 =====================
