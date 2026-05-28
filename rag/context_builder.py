@@ -37,15 +37,19 @@ _MODEL_CONTEXT: dict[str, int] = {
 _DEFAULT_CONTEXT = 32_768  # 保守默认值
 
 
-def _calc_max_rows(model_id: str, rows: list[dict]) -> int:
-    """根据模型上下文窗口和当前行平均大小，动态计算最多可传行数"""
+def _calc_max_rows(model_id: str, rows: list[dict], system_used_tokens: int = 0) -> int:
+    """根据模型上下文窗口和当前行平均大小，动态计算最多可传行数。
+    system_used_tokens > 0 时使用 API 实测值，否则降级为硬编码估算值。
+    """
     if not rows:
         return 5
     context_size = _MODEL_CONTEXT.get(model_id, _DEFAULT_CONTEXT)
-    data_budget = max(4_000, context_size - _SYSTEM_RESERVE)  # 数据可用 token 预算
+    reserve = system_used_tokens if system_used_tokens > 0 else _SYSTEM_RESERVE
+    data_budget = max(2_000, context_size - reserve)  # 数据可用 token 预算
     avg_tokens_per_row = max(1, len(json.dumps(rows, ensure_ascii=False)) // 4 // len(rows))
     max_rows = max(3, min(50, data_budget // avg_tokens_per_row))
-    logger.info("RAG", f"动态行数计算 | model={model_id} | ctx={context_size} | budget={data_budget} | avg_row={avg_tokens_per_row}tk | max_rows={max_rows}")
+    src = "实测" if system_used_tokens > 0 else "估算"
+    logger.info("RAG", f"动态行数计算 | model={model_id} | ctx={context_size} | reserve={reserve}({src}) | budget={data_budget} | avg_row={avg_tokens_per_row}tk | max_rows={max_rows}")
     return max_rows
 
 
@@ -159,6 +163,7 @@ def build_context(
     user_message: str,
     field_labels: dict[str, str] | None = None,
     model_id: str = "",
+    system_used_tokens: int = 0,
 ) -> BuiltContext:
     """
     构建传给 AI 的 RAG 上下文
@@ -200,7 +205,7 @@ def build_context(
         logger.warn("RAG", f"Token 超限触发RAG | rows={len(rows)} | ~{estimated_tokens} tokens > {RAG_TOKEN_THRESHOLD}")
 
     # 大数据集：RAG 分片
-    max_rows = _calc_max_rows(model_id, rows)
+    max_rows = _calc_max_rows(model_id, rows, system_used_tokens)
     logger.info("RAG", f"大数据集触发RAG分片 | rows={len(rows)} | max_rows={max_rows} | 提取关键词中...")
     keywords = _extract_keywords(user_message)
     logger.info("RAG", f"关键词: [{', '.join(keywords)}]")

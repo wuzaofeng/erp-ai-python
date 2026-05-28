@@ -464,7 +464,7 @@ async def chat_with_ai(
                     erp_data_pushed = True
                     logger.ai("ToolCall", f"已推送 erp.data 事件 | rows={len(parsed.rows)} | total={parsed.total}")
 
-                    rag_context = build_context(parsed, request["message"], field_labels, model_id=model_name)
+                    rag_context = build_context(parsed, request["message"], field_labels, model_id=model_name, system_used_tokens=_tokens.get("input_tokens", 0))
                     messages.append(ToolMessage(content=rag_context.context_text, tool_call_id=tool_call_id))
                     logger.ai(
                         "RAG",
