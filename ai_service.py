@@ -98,8 +98,8 @@ async def invoke_with_fallback(
             status = getattr(err, "status_code", None) or getattr(err, "status", None)
             msg = str(err)
             logger.error("LangChain", f"调用失败 [{try_model}] | status={status} | {msg}")
-            if status in (429, 404) and i < len(models_to_try) - 1:
-                reason = "429 限流" if status == 429 else "404 模型不可用"
+            if status in (429, 404, 403) and i < len(models_to_try) - 1:
+                reason = "429 限流" if status == 429 else ("403 区域限制" if status == 403 else "404 模型不可用")
                 last_error_msg = f"{try_model} {reason}: {msg}"
                 logger.warn("LangChain", f"{reason}，尝试下一个备用模型...")
                 continue
@@ -369,9 +369,16 @@ async def chat_with_ai(
                 tool_duration = t_tool()
                 logger.ai("ToolCall", f"[{tool_name}] 完成 | 耗时={tool_duration}ms | 返回={len(raw_tool_result)}字节")
             except Exception as e:
+                import traceback
                 tool_duration = t_tool()
-                logger.error("ToolCall", f"[{tool_name}] 失败: {e}")
-                raw_tool_result = json.dumps({"error": f"工具执行失败：{e}"}, ensure_ascii=False)
+                tb = traceback.extract_tb(e.__traceback__)
+                source = f"{tb[-1].filename}:{tb[-1].lineno} in {tb[-1].name}" if tb else type(e).__name__
+                logger.error("ToolCall", f"[{tool_name}] 失败: {e} | 来源={source}")
+                raw_tool_result = json.dumps({
+                    "error": str(e),
+                    "source": source,
+                    "type": type(e).__name__,
+                }, ensure_ascii=False)
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
             # search_erp_tables 已在工具内部调用 log_table_search，此处跳过避免重复记录

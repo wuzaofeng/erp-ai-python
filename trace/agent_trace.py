@@ -127,17 +127,27 @@ class AgentTraceService:
         trace = self._traces.get(run_id)
         if not trace:
             return
-        # result 是字符串，尝试从 JSON 中解析 rows 数量
+        # result 是字符串，尝试从 JSON 中解析 rows 数量和错误信息
         row_count = 0
         output_data = result
+        error_msg: Optional[str] = None
         if isinstance(result, str):
             try:
                 parsed = json.loads(result)
-                rows = parsed.get("rows") if isinstance(parsed, dict) else None
-                if isinstance(rows, list):
-                    row_count = len(rows)
-                    # 大结果只记摘要，避免 trace 体积过大
-                    output_data = {**parsed, "rows": f"[{row_count} rows, omitted]"} if row_count > 3 else parsed
+                if isinstance(parsed, dict):
+                    # 优先提取 error 字段，提升为 step.error 供前端红色高亮
+                    if parsed.get("error"):
+                        source = parsed.get("source", "")
+                        exc_type = parsed.get("type", "")
+                        prefix = f"[{exc_type}] " if exc_type else ""
+                        error_msg = prefix + str(parsed["error"]) + (f"\n来源：{source}" if source else "")
+                    rows = parsed.get("rows")
+                    if isinstance(rows, list):
+                        row_count = len(rows)
+                        # 大结果只记摘要，避免 trace 体积过大
+                        output_data = {**parsed, "rows": f"[{row_count} rows, omitted]"} if row_count > 3 else parsed
+                    else:
+                        output_data = parsed
             except (json.JSONDecodeError, AttributeError):
                 pass
         elif isinstance(result, list):
@@ -192,6 +202,7 @@ class AgentTraceService:
             input_data=params,
             output_data=output_data,
             metadata=metadata,
+            error=error_msg,
             duration_ms=duration_ms,
         )
 
