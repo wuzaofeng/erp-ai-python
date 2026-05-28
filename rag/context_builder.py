@@ -188,8 +188,15 @@ def build_context(
     estimated_tokens = raw_json_len // 4
     token_overflow = estimated_tokens > RAG_TOKEN_THRESHOLD
 
-    # 小数据集：行数未超阈值 且 token 未超限，直接全量传递
-    if len(rows) <= RAG_THRESHOLD and not token_overflow:
+    # 检查 system_used_tokens + data_tokens 是否超出模型上下文窗口
+    context_size = _MODEL_CONTEXT.get(model_id, _DEFAULT_CONTEXT)
+    context_overflow = (
+        system_used_tokens > 0
+        and system_used_tokens + estimated_tokens > context_size
+    )
+
+    # 小数据集：行数未超阈值 且 token 未超限 且上下文总量未超窗口，直接全量传递
+    if len(rows) <= RAG_THRESHOLD and not token_overflow and not context_overflow:
         result_json = json.dumps(
             {"total": data.total, "pageIndex": data.page_index, "pageSize": data.page_size, "rows": rows},
             ensure_ascii=False, indent=2
@@ -203,6 +210,8 @@ def build_context(
 
     if token_overflow:
         logger.warn("RAG", f"Token 超限触发RAG | rows={len(rows)} | ~{estimated_tokens} tokens > {RAG_TOKEN_THRESHOLD}")
+    if context_overflow:
+        logger.warn("RAG", f"上下文总量超限触发RAG | system={system_used_tokens} | data={estimated_tokens} | total={system_used_tokens + estimated_tokens} > ctx={context_size}")
 
     # 大数据集：RAG 分片
     max_rows = _calc_max_rows(model_id, rows, system_used_tokens)
