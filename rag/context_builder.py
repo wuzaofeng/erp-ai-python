@@ -11,7 +11,42 @@ from logger import logger
 # ===================== 配置 =====================
 
 RAG_THRESHOLD = int(os.getenv("RAG_THRESHOLD", "30"))
-MAX_RELEVANT_ROWS = int(os.getenv("RAG_MAX_ROWS", "20"))
+# 数据序列化后估算 token 数超过此值强制触发 RAG（1 token ≈ 4 字符）
+RAG_TOKEN_THRESHOLD = int(os.getenv("RAG_TOKEN_THRESHOLD", "6000"))
+# 系统提示 + 对话历史 + 回答缓冲 预留 token 数
+_SYSTEM_RESERVE = 12_000
+
+# 各模型实测可用上下文窗口（单位：token）
+# deepseek 系在 OpenRouter 实测上限约 32K，其余按官方文档
+_MODEL_CONTEXT: dict[str, int] = {
+    "deepseek/deepseek-chat":        32_768,
+    "deepseek/deepseek-chat-v3.1":   32_768,
+    "deepseek/deepseek-r1-0528":     32_768,
+    "openai/gpt-4o-mini":            128_000,
+    "openai/gpt-4o":                 128_000,
+    "openai/gpt-4.1-mini":           128_000,
+    "anthropic/claude-sonnet-4.5":   200_000,
+    "anthropic/claude-haiku-4.5":    200_000,
+    "google/gemini-2.5-flash":       1_000_000,
+    "google/gemini-2.0-flash-001":   1_000_000,
+    "google/gemini-3-flash-preview": 1_000_000,
+    "qwen/qwen3-235b-a22b":          131_072,
+    "qwen/qwen3.5-flash-02-23":      1_000_000,
+    "moonshotai/kimi-k2":            131_072,
+}
+_DEFAULT_CONTEXT = 32_768  # 保守默认值
+
+
+def _calc_max_rows(model_id: str, rows: list[dict]) -> int:
+    """根据模型上下文窗口和当前行平均大小，动态计算最多可传行数"""
+    if not rows:
+        return 5
+    context_size = _MODEL_CONTEXT.get(model_id, _DEFAULT_CONTEXT)
+    data_budget = max(4_000, context_size - _SYSTEM_RESERVE)  # 数据可用 token 预算
+    avg_tokens_per_row = max(1, len(json.dumps(rows, ensure_ascii=False)) // 4 // len(rows))
+    max_rows = max(3, min(50, data_budget // avg_tokens_per_row))
+    logger.info("RAG", f"动态行数计算 | model={model_id} | ctx={context_size} | budget={data_budget} | avg_row={avg_tokens_per_row}tk | max_rows={max_rows}")
+    return max_rows
 
 
 # ===================== 类型 =====================
@@ -123,6 +158,7 @@ def build_context(
     data: RawErpData,
     user_message: str,
     field_labels: dict[str, str] | None = None,
+    model_id: str = "",
 ) -> BuiltContext:
     """
     构建传给 AI 的 RAG 上下文
@@ -142,21 +178,30 @@ def build_context(
         "禁止使用任何训练知识替换或补充下列字段值：\n"
     )
 
-    # 小数据集：直接全量传递
-    if len(rows) <= RAG_THRESHOLD:
+    # 估算序列化后 token 数（1 token ≈ 4 字符）
+    raw_json_len = len(json.dumps(rows, ensure_ascii=False))
+    estimated_tokens = raw_json_len // 4
+    token_overflow = estimated_tokens > RAG_TOKEN_THRESHOLD
+
+    # 小数据集：行数未超阈值 且 token 未超限，直接全量传递
+    if len(rows) <= RAG_THRESHOLD and not token_overflow:
         result_json = json.dumps(
             {"total": data.total, "pageIndex": data.page_index, "pageSize": data.page_size, "rows": rows},
             ensure_ascii=False, indent=2
         )
-        logger.info("RAG", f"小数据集全量传递 | rows={len(rows)} | threshold={RAG_THRESHOLD}")
+        logger.info("RAG", f"小数据集全量传递 | rows={len(rows)} | ~{estimated_tokens} tokens")
         return BuiltContext(
             context_text=injection_warning + disclaimer + result_json,
             is_rag=False,
             sent_row_count=len(rows),
         )
 
+    if token_overflow:
+        logger.warn("RAG", f"Token 超限触发RAG | rows={len(rows)} | ~{estimated_tokens} tokens > {RAG_TOKEN_THRESHOLD}")
+
     # 大数据集：RAG 分片
-    logger.info("RAG", f"大数据集触发RAG分片 | rows={len(rows)} | 提取关键词中...")
+    max_rows = _calc_max_rows(model_id, rows)
+    logger.info("RAG", f"大数据集触发RAG分片 | rows={len(rows)} | max_rows={max_rows} | 提取关键词中...")
     keywords = _extract_keywords(user_message)
     logger.info("RAG", f"关键词: [{', '.join(keywords)}]")
 
@@ -164,7 +209,7 @@ def build_context(
         enumerate(rows),
         key=lambda x: (-_score_row(x[1], keywords), x[0])
     )
-    relevant_rows = [row for _, row in scored[:MAX_RELEVANT_ROWS]]
+    relevant_rows = [row for _, row in scored[:max_rows]]
 
     summary = _build_summary(data)
 
