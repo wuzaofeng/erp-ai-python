@@ -185,7 +185,7 @@ class AgentTraceService:
             metadata={"reason": "model_unavailable", "error": error},
         )
 
-    def log_route(self, run_id: str, result: dict) -> None:
+    def log_route(self, run_id: str, result: dict, duration_ms: Optional[int] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
@@ -195,15 +195,16 @@ class AgentTraceService:
             input_data=result.get("reasoning"),
             output_data={"intent": result.get("intent"), "confidence": result.get("confidence")},
             confidence=result.get("confidence"),
+            duration_ms=duration_ms,
         )
 
-    def log_agent(self, run_id: str, agent_name: str, input_data: Any, output_data: Any, metadata: dict | None = None) -> None:
+    def log_agent(self, run_id: str, agent_name: str, input_data: Any, output_data: Any, metadata: dict | None = None, duration_ms: Optional[int] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
-        trace.add_step(StepType.AGENT, agent_name, input_data=input_data, output_data=output_data, metadata=metadata or {})
+        trace.add_step(StepType.AGENT, agent_name, input_data=input_data, output_data=output_data, metadata=metadata or {}, duration_ms=duration_ms)
 
-    def log_knowledge_search(self, run_id: str, query: str, hits: list[dict]) -> None:
+    def log_knowledge_search(self, run_id: str, query: str, hits: list[dict], duration_ms: Optional[int] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
@@ -213,9 +214,10 @@ class AgentTraceService:
             input_data={"query": query},
             output_data={"hit_count": len(hits), "hits": hits},
             metadata={"matched": bool(hits)},
+            duration_ms=duration_ms,
         )
 
-    def log_table_search(self, run_id: str, keyword: str, matched_count: int, table_names: list[str], cache_hit: bool) -> None:
+    def log_table_search(self, run_id: str, keyword: str, matched_count: int, tables: list[dict], cache_hit: bool, duration_ms: Optional[int] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
@@ -223,11 +225,12 @@ class AgentTraceService:
             StepType.TABLE_SEARCH,
             "SearchErpTables",
             input_data={"keyword": keyword},
-            output_data={"matched": matched_count, "tables": table_names},
+            output_data={"matched": matched_count, "tables": tables},
             metadata={"cache_hit": cache_hit, "table_count": matched_count},
+            duration_ms=duration_ms,
         )
 
-    def log_rag(self, run_id: str, is_rag: bool, total_rows: int, sent_rows: int, keywords: list[str]) -> None:
+    def log_rag(self, run_id: str, is_rag: bool, total_rows: int, sent_rows: int, keywords: list[str], duration_ms: Optional[int] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
@@ -237,6 +240,7 @@ class AgentTraceService:
             input_data={"total_rows": total_rows, "keywords": keywords},
             output_data={"is_rag": is_rag, "sent_rows": sent_rows},
             metadata={"compressed": is_rag, "drop_count": total_rows - sent_rows},
+            duration_ms=duration_ms,
         )
 
     def log_reflection(self, run_id: str, reason: str, adjustment: Optional[dict] = None) -> None:

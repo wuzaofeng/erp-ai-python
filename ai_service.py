@@ -171,8 +171,9 @@ async def chat_with_ai(
     # ---- 2. 读取服务端 Memory、用户偏好、知识库 ----
     history_messages = get_history(user_id, conv_id)
     preference_prompt = get_preference_prompt(user_id)
+    t_kb = start_timer()
     knowledge_prompt, knowledge_hits = build_knowledge_prompt(request["message"])
-    trace_service.log_knowledge_search(run_id, request["message"], knowledge_hits)
+    trace_service.log_knowledge_search(run_id, request["message"], knowledge_hits, duration_ms=t_kb())
     logger.ai(
         "Memory",
         f"读取历史 | userId={user_id} | 历史轮数={len(history_messages) // 2} | 有偏好={bool(preference_prompt)}",
@@ -366,7 +367,9 @@ async def chat_with_ai(
                 raw_tool_result = json.dumps({"error": f"工具执行失败：{e}"}, ensure_ascii=False)
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
-            trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, erp_cookie=erp_cookie, erp_auth=erp_authorization, duration_ms=t_tool())
+            # search_erp_tables 已在工具内部调用 log_table_search，此处跳过避免重复记录
+            if tool_name != "search_erp_tables":
+                trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, erp_cookie=erp_cookie, erp_auth=erp_authorization, duration_ms=t_tool())
             if tool_name in ("query_erp_list", "search_erp_global"):
                 query_erp_called = True
 
@@ -540,14 +543,17 @@ async def chat_with_ai(
                 accumulated_answer.append(text)
                 yield text
 
+        final_answer_ms = t2()
         logger.ai(
             "LangChain",
-            f"← 流式输出完成 | chunk={chunk_index} | 总字符={total_chars} | 耗时={t2()}ms",
+            f"← 流式输出完成 | chunk={chunk_index} | 总字符={total_chars} | 耗时={final_answer_ms}ms",
         )
 
         if not has_content:
             logger.warn("LangChain", "流式输出返回空内容")
             yield "（AI 未返回内容，请检查 ERP 查询结果或重新提问）"
+    else:
+        final_answer_ms = None
 
     # ---- 7. 收尾：保存 Memory + 更新 userPreference ----
     final_answer = "".join(accumulated_answer)
@@ -563,6 +569,7 @@ async def chat_with_ai(
             input_data=None,
             output_data=final_answer,
             metadata={"suspected_hallucination": suspected_hallucination} if suspected_hallucination else {},
+            duration_ms=final_answer_ms,
         )
     # 有工具报错时不写 Memory，防止错误内容污染后续对话
     if final_answer and not tool_errors:

@@ -104,16 +104,18 @@ def create_search_tables_tool(run_id: str = "") -> StructuredTool:
     """创建 SearchTables 工具实例（不需要 ERP cookie，纯本地 SQLite 查询）"""
 
     def handler(keyword: str) -> str:
+        from logger import start_timer as _st
         cache_key = keyword.strip().lower()
         cache_hit = cache_key in _cache
+        t = _st()
         result = _search_tables(keyword)
+        duration = t()
         if run_id:
             try:
                 import json as _json
                 from trace.agent_trace import trace_service
                 parsed = _json.loads(result)
-                table_names = [t.get("tableName", "") for t in parsed.get("tables", [])]
-                trace_service.log_table_search(run_id, keyword, parsed.get("matched", 0), table_names, cache_hit)
+                trace_service.log_table_search(run_id, keyword, parsed.get("matched", 0), parsed.get("tables", []), cache_hit, duration_ms=duration)
             except Exception:
                 pass
         return result

@@ -49,8 +49,10 @@ class AgentOrchestrator:
 
         try:
             # ---- 1. 意图路由 ----
+            from logger import start_timer as _st
+            _t_route = _st()
             routing: RoutingResult = await self.router.route(request["message"])
-            self.trace.log_route(run_id, routing.model_dump())
+            self.trace.log_route(run_id, routing.model_dump(), duration_ms=_t_route())
             logger.ai("Orchestrator", f"意图={routing.intent} | 置信度={routing.confidence:.0%}")
 
             # ---- 2. simple：直接轻量回答 ----
