@@ -103,12 +103,25 @@ def _build_erp_headers(erp_cookie: str = "", erp_auth: str = "") -> dict:
     return headers
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """深合并：override 中的 dict 值与 base 递归合并，其余类型直接覆盖。"""
+    result = dict(base)
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
 def _build_common_query_body(args: dict) -> dict:
     """
     组装 ERP 请求体。
     body_mode:
-      merge（默认）— 标准 CommonQuery 模板 + extraBody 浅合并（可追加/覆盖顶层字段）
-      override     — 完全跳过标准模板，直接使用 extraBody 作为整个请求体
+      merge（默认）  — 标准模板 + extraBody 浅合并（顶层字段直接覆盖）
+      merge_deep     — 标准模板 + extraBody 深合并（嵌套 dict 递归合并）；
+                       AI 动态传入的分页参数（pageIndex/pageSize/filters）始终优先，不被 extraBody 覆盖
+      override       — 完全跳过标准模板，直接使用 extraBody 作为整个请求体
     """
     body_mode  = args.get("bodyMode", "merge")
     extra_body = args.get("extraBody") or {}
@@ -133,9 +146,12 @@ def _build_common_query_body(args: dict) -> dict:
         "formData": {},
         "flag":    "clickSearchBtn",
     }
-    if extra_body:
-        return {**default_body, **extra_body}
-    return default_body
+    if not extra_body:
+        return default_body
+    if body_mode == "merge_deep":
+        # extraBody 打底，default_body（含运行时参数）后覆盖，运行时值天然最高优先级
+        return _deep_merge(extra_body, default_body)
+    return {**default_body, **extra_body}
 
 
 # ===================== CommonQuery =====================
