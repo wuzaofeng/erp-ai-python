@@ -71,15 +71,34 @@ class AgentTraceService:
         self._traces[run_id] = trace
         return run_id
 
-    def log_llm(self, run_id: str, round_n: int, model: str, reasoning: str, tool_calls: list, tokens: dict, duration_ms: Optional[int] = None) -> None:
-        """记录每轮 LLM 调用：推理文本、使用模型、token 用量"""
+    def log_llm(self, run_id: str, round_n: int, model: str, reasoning: str, tool_calls: list, tokens: dict,
+                duration_ms: Optional[int] = None, messages: Optional[list] = None, finish_reason: Optional[str] = None) -> None:
+        """记录每轮 LLM 调用：推理文本、使用模型、token 用量、输入消息摘要、finish_reason"""
         trace = self._traces.get(run_id)
         if not trace:
             return
+
+        # 消息摘要：记录条数 + 每条 role/内容前80字（避免体积过大）
+        messages_summary = None
+        if messages:
+            messages_summary = [
+                {
+                    "role": getattr(m, "type", type(m).__name__),
+                    "preview": (m.content[:80] + "…" if isinstance(m.content, str) and len(m.content) > 80 else m.content)
+                    if hasattr(m, "content") else str(m)[:80],
+                }
+                for m in messages
+            ]
+
         trace.add_step(
             StepType.AGENT,
             f"LLM Round {round_n} [{model}]",
-            input_data={"round": round_n, "model": model},
+            input_data={
+                "round": round_n,
+                "model": model,
+                "message_count": len(messages) if messages else None,
+                "messages": messages_summary,
+            },
             output_data={
                 "reasoning": reasoning or None,
                 "tool_calls": [
@@ -88,7 +107,10 @@ class AgentTraceService:
                     for tc in tool_calls
                 ] if tool_calls else [],
             },
-            metadata={"tokens": tokens} if tokens else {},
+            metadata={
+                **({"tokens": tokens} if tokens else {}),
+                **({"finish_reason": finish_reason} if finish_reason else {}),
+            },
             duration_ms=duration_ms,
         )
         # 累加 token 到 trace

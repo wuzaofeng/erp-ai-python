@@ -242,9 +242,10 @@ async def chat_with_ai(
         )
 
         tool_calls = ai_response.tool_calls or []
+        llm_duration = t()
         logger.ai(
             "LangChain",
-            f"← 第 {round_n} 轮响应 [{used_model}] | tool_calls={len(tool_calls)} | 耗时={t()}ms",
+            f"← 第 {round_n} 轮响应 [{used_model}] | tool_calls={len(tool_calls)} | 耗时={llm_duration}ms",
         )
 
         if used_model != prev_model:
@@ -257,12 +258,16 @@ async def chat_with_ai(
             "output_tokens": _usage.get("output_tokens", 0),
             "total_tokens": _usage.get("total_tokens", 0),
         } if _usage else {}
+        finish_reason = getattr(ai_response, "response_metadata", {}).get("finish_reason") or \
+                        getattr(ai_response, "response_metadata", {}).get("stop_reason")
         trace_service.log_llm(
             run_id, round_n, used_model,
             reasoning=extract_text(ai_response.content),
             tool_calls=tool_calls,
             tokens=_tokens,
-            duration_ms=t(),
+            duration_ms=llm_duration,
+            messages=messages,
+            finish_reason=finish_reason,
         )
 
         # ---- 无 tool calls → AI 直接回答 ----
@@ -361,15 +366,17 @@ async def chat_with_ai(
                     raw_tool_result = c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)
                 else:
                     raw_tool_result = str(invoke_result)
-                logger.ai("ToolCall", f"[{tool_name}] 完成 | 耗时={t_tool()}ms | 返回={len(raw_tool_result)}字节")
+                tool_duration = t_tool()
+                logger.ai("ToolCall", f"[{tool_name}] 完成 | 耗时={tool_duration}ms | 返回={len(raw_tool_result)}字节")
             except Exception as e:
+                tool_duration = t_tool()
                 logger.error("ToolCall", f"[{tool_name}] 失败: {e}")
                 raw_tool_result = json.dumps({"error": f"工具执行失败：{e}"}, ensure_ascii=False)
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
             # search_erp_tables 已在工具内部调用 log_table_search，此处跳过避免重复记录
             if tool_name != "search_erp_tables":
-                trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, erp_cookie=erp_cookie, erp_auth=erp_authorization, duration_ms=t_tool())
+                trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, erp_cookie=erp_cookie, erp_auth=erp_authorization, duration_ms=tool_duration)
             if tool_name in ("query_erp_list", "search_erp_global"):
                 query_erp_called = True
 
@@ -468,6 +475,7 @@ async def chat_with_ai(
                     erp_data_pushed = True
                     logger.ai("ToolCall", f"已推送 erp.data 事件 | rows={len(parsed.rows)} | total={parsed.total}")
 
+                    t_rag = start_timer()
                     rag_context = build_context(parsed, request["message"], field_labels, model_id=model_name, system_used_tokens=_tokens.get("input_tokens", 0))
                     messages.append(ToolMessage(content=rag_context.context_text, tool_call_id=tool_call_id))
                     logger.ai(
@@ -481,6 +489,7 @@ async def chat_with_ai(
                         total_rows=len(parsed.rows),
                         sent_rows=rag_context.sent_row_count,
                         keywords=_extract_keywords(request["message"]),
+                        duration_ms=t_rag(),
                     )
                 else:
                     messages.append(ToolMessage(content=raw_tool_result, tool_call_id=tool_call_id))
