@@ -153,14 +153,14 @@ def search_knowledge(query: str, n: int = 3) -> list[dict]:
     return output
 
 
-def build_knowledge_prompt(query: str) -> str:
+def build_knowledge_prompt(query: str) -> tuple[str, list[dict]]:
     """
-    给定用户问题，返回可注入 System Prompt 的知识段落文本。
-    若无相关文档则返回空字符串。
+    给定用户问题，返回 (可注入 System Prompt 的知识段落文本, 命中文档元数据列表)。
+    若无相关文档则返回 ("", [])。
     """
     results = search_knowledge(query, n=3)
     if not results:
-        return ""
+        return "", []
 
     lines = ["【相关业务知识】"]
     for r in results:
@@ -168,7 +168,8 @@ def build_knowledge_prompt(query: str) -> str:
         lines.append(r["text"])
         lines.append("")
 
-    return "\n".join(lines)
+    hits = [{"source": r["source"], "score": r["score"]} for r in results]
+    return "\n".join(lines), hits
 
 
 def get_knowledge_stats() -> dict:

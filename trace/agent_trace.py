@@ -10,6 +10,8 @@ class StepType(str, Enum):
     ROUTE = "route"
     AGENT = "agent"
     TOOL = "tool"
+    TABLE_SEARCH = "table_search"
+    KNOWLEDGE = "knowledge"
     ANALYSIS = "analysis"
     RETRY = "retry"
     REFLECTION = "reflection"
@@ -195,11 +197,35 @@ class AgentTraceService:
             confidence=result.get("confidence"),
         )
 
-    def log_agent(self, run_id: str, agent_name: str, input_data: Any, output_data: Any) -> None:
+    def log_agent(self, run_id: str, agent_name: str, input_data: Any, output_data: Any, metadata: dict | None = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:
             return
-        trace.add_step(StepType.AGENT, agent_name, input_data=input_data, output_data=output_data)
+        trace.add_step(StepType.AGENT, agent_name, input_data=input_data, output_data=output_data, metadata=metadata or {})
+
+    def log_knowledge_search(self, run_id: str, query: str, hits: list[dict]) -> None:
+        trace = self._traces.get(run_id)
+        if not trace:
+            return
+        trace.add_step(
+            StepType.KNOWLEDGE,
+            "KnowledgeSearch",
+            input_data={"query": query},
+            output_data={"hit_count": len(hits), "hits": hits},
+            metadata={"matched": bool(hits)},
+        )
+
+    def log_table_search(self, run_id: str, keyword: str, matched_count: int, table_names: list[str], cache_hit: bool) -> None:
+        trace = self._traces.get(run_id)
+        if not trace:
+            return
+        trace.add_step(
+            StepType.TABLE_SEARCH,
+            "SearchErpTables",
+            input_data={"keyword": keyword},
+            output_data={"matched": matched_count, "tables": table_names},
+            metadata={"cache_hit": cache_hit, "table_count": matched_count},
+        )
 
     def log_rag(self, run_id: str, is_rag: bool, total_rows: int, sent_rows: int, keywords: list[str]) -> None:
         trace = self._traces.get(run_id)

@@ -171,14 +171,15 @@ async def chat_with_ai(
     # ---- 2. 读取服务端 Memory、用户偏好、知识库 ----
     history_messages = get_history(user_id, conv_id)
     preference_prompt = get_preference_prompt(user_id)
-    knowledge_prompt = build_knowledge_prompt(request["message"])
+    knowledge_prompt, knowledge_hits = build_knowledge_prompt(request["message"])
+    trace_service.log_knowledge_search(run_id, request["message"], knowledge_hits)
     logger.ai(
         "Memory",
         f"读取历史 | userId={user_id} | 历史轮数={len(history_messages) // 2} | 有偏好={bool(preference_prompt)}",
     )
 
     # ---- 3. 创建工具 ----
-    erp_tools = create_all_tools(erp_cookie, erp_authorization, user_id)
+    erp_tools = create_all_tools(erp_cookie, erp_authorization, user_id, run_id)
     tool_map: dict[str, Any] = {t.name: t for t in erp_tools}
 
     # ---- 4. 构造初始消息 ----
@@ -551,7 +552,18 @@ async def chat_with_ai(
     # ---- 7. 收尾：保存 Memory + 更新 userPreference ----
     final_answer = "".join(accumulated_answer)
     if final_answer:
-        trace_service.log_agent(run_id, "FinalAnswer", input_data=None, output_data=final_answer)
+        # 无知识库命中 + 无工具调用 + 有实质回答 → 疑似使用训练知识
+        suspected_hallucination = (
+            not knowledge_hits
+            and not tools_were_called
+            and len(final_answer.strip()) > 20
+        )
+        trace_service.log_agent(
+            run_id, "FinalAnswer",
+            input_data=None,
+            output_data=final_answer,
+            metadata={"suspected_hallucination": suspected_hallucination} if suspected_hallucination else {},
+        )
     # 有工具报错时不写 Memory，防止错误内容污染后续对话
     if final_answer and not tool_errors:
         append_assistant_message(user_id, final_answer, conv_id, verified=erp_data_pushed)

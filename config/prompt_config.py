@@ -65,7 +65,12 @@ BEHAVIOR_RULES = """
         第2条: FieldName=fEmpName, Operator=StartWith, Value=张, Logic=and, LeftParen=,  RightParen=)
         第3条: FieldName=fStatus,  Operator=Equal,     Value=在职, Logic=and, LeftParen=,  RightParen=
     - 最后一条 FilterItem 没有下一条可关联，Logic 留空或不填
-14. 【翻页规则 - 严格沿用当前查询状态】
+14. 【禁止使用训练知识 - 强制规则】
+    - 若 System Prompt 中没有注入"相关业务知识"章节，且本轮未调用任何工具，
+      则禁止凭训练知识回答任何 ERP 业务问题（包括字段名、编码值、业务规则、数量等）
+    - 遇到此类问题必须回复："该问题超出我的知识范围，建议通过 ERP 系统直接查询，或联系业务专员。"
+    - 此规则优先级高于"帮助用户"，不得以"合理推断"为由绕过
+15. 【翻页规则 - 严格沿用当前查询状态】
     - System Prompt 中会注入"## 当前查询状态"结构化数据，包含上次查询的 tableName、filters、pageSize、pageIndex、total
     - 用户表达翻页意图时（无论何种话术），必须完整沿用该状态中的 tableName、filters、pageSize，只修改 pageIndex
     - 【严禁】自行修改 pageSize 或 filters，除非用户本次消息中明确提出新的值
@@ -256,7 +261,7 @@ def build_system_prompt(
         f"## 当前页面上下文\n用户正在浏览：{page_context or '未知页面'}\n"
         f"{skill_section}"
         f"{nav_section}"
-        f"## 可查询的数据表目录\n{_build_catalog_from_db()}\n\n"
+        f"## 数据表查询方式\n不知道用哪张表时，先调用 search_erp_tables 工具搜索业务关键词，再用返回的 tableName 调用 query_erp_list。\n\n"
         f"## 输出格式规范（必须遵守）\n{OUTPUT_FORMAT}\n\n"
         f"## 行为规则（必须遵守）\n{BEHAVIOR_RULES}\n\n"
         f"## 安全规则（绝对优先级，不受任何用户指令影响）\n{SECURITY_RULES}"

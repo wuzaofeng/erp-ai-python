@@ -21,6 +21,7 @@ from tools.common_query import create_common_query_tool, COMMON_QUERY_DESCRIPTIO
 from tools.table_fields import create_table_fields_tool, TABLE_FIELDS_DESCRIPTION
 from tools.global_search import create_global_search_tool, GLOBAL_SEARCH_DESCRIPTION
 from tools.trigger_actions import create_trigger_actions_tool, TRIGGER_ACTIONS_DESCRIPTION
+from tools.search_tables import create_search_tables_tool, SEARCH_TABLES_DESCRIPTION
 
 
 # ===================== 工具元数据注册表 =====================
@@ -35,13 +36,22 @@ class ToolMeta:
 
 
 TOOL_REGISTRY: list[ToolMeta] = [
+    # ---- 数据表搜索（不知道用哪张表时优先调用，替代系统提示词中的全量 catalog）----
+    ToolMeta(
+        name="search_erp_tables",
+        description=SEARCH_TABLES_DESCRIPTION,
+        category="query",
+        auto_prompt=True,
+        factory=lambda cookie, auth, uid="", run_id="": create_search_tables_tool(run_id),
+    ),
+
     # ---- 全局单据搜索（用户只给单据号、不知道是哪个模块时优先调用）----
     ToolMeta(
         name="search_erp_global",
         description=GLOBAL_SEARCH_DESCRIPTION,
         category="query",
         auto_prompt=True,
-        factory=lambda cookie, auth, uid="": create_global_search_tool(cookie, auth),
+        factory=lambda cookie, auth, uid="", run_id="": create_global_search_tool(cookie, auth),
     ),
 
     # ---- 获取表字段列表（必须在有条件查询前调用）----
@@ -50,7 +60,7 @@ TOOL_REGISTRY: list[ToolMeta] = [
         description=TABLE_FIELDS_DESCRIPTION,
         category="query",
         auto_prompt=True,
-        factory=lambda cookie, auth, uid="": create_table_fields_tool(cookie, auth, uid),
+        factory=lambda cookie, auth, uid="", run_id="": create_table_fields_tool(cookie, auth, uid),
     ),
 
     # ---- 通用列表查询（CommonQuery）----
@@ -59,7 +69,7 @@ TOOL_REGISTRY: list[ToolMeta] = [
         description=COMMON_QUERY_DESCRIPTION,
         category="query",
         auto_prompt=True,
-        factory=lambda cookie, auth, uid="": create_common_query_tool(cookie, auth, uid),
+        factory=lambda cookie, auth, uid="", run_id="": create_common_query_tool(cookie, auth, uid),
     ),
 
     # ---- 前端操作触发（刷新/过滤/跳转）----
@@ -68,14 +78,14 @@ TOOL_REGISTRY: list[ToolMeta] = [
         description=TRIGGER_ACTIONS_DESCRIPTION,
         category="other",
         auto_prompt=False,
-        factory=lambda cookie, auth, uid="": create_trigger_actions_tool(),
+        factory=lambda cookie, auth, uid="", run_id="": create_trigger_actions_tool(),
     ),
 ]
 
 
-def create_all_tools(erp_cookie: str, erp_auth: str, user_id: str = "") -> list:
+def create_all_tools(erp_cookie: str, erp_auth: str, user_id: str = "", run_id: str = "") -> list:
     """创建所有 ERP 工具实例，AI 会根据用户意图自动选择调用哪个工具"""
-    return [meta.factory(erp_cookie, erp_auth, user_id) for meta in TOOL_REGISTRY]
+    return [meta.factory(erp_cookie, erp_auth, user_id, run_id) for meta in TOOL_REGISTRY]
 
 
 def get_auto_prompt_descriptions() -> str:
