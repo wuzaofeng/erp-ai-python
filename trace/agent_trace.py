@@ -13,6 +13,7 @@ class StepType(str, Enum):
     TABLE_SEARCH = "table_search"
     KNOWLEDGE = "knowledge"
     ANALYSIS = "analysis"
+    DATA_PUSH = "data_push"
     RETRY = "retry"
     REFLECTION = "reflection"
     COMPLETE = "complete"
@@ -262,6 +263,21 @@ class AgentTraceService:
             input_data={"total_rows": total_rows, "keywords": keywords},
             output_data={"is_rag": is_rag, "sent_rows": sent_rows},
             metadata={"compressed": is_rag, "drop_count": total_rows - sent_rows},
+            duration_ms=duration_ms,
+        )
+
+    def log_erp_data(self, run_id: str, table_name: str, rows: int, total: int,
+                     page_index: int, page_size: int, duration_ms: Optional[int] = None) -> None:
+        """记录 ERP 数据表格推送到前端这一步"""
+        trace = self._traces.get(run_id)
+        if not trace:
+            return
+        trace.add_step(
+            StepType.DATA_PUSH,
+            "ErpDataPush",
+            input_data={"tableName": table_name, "pageIndex": page_index, "pageSize": page_size},
+            output_data={"rows": rows, "total": total},
+            metadata={"rows": rows, "total": total, "pages": -(-total // page_size) if page_size else 1},
             duration_ms=duration_ms,
         )
 

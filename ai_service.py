@@ -474,6 +474,14 @@ async def chat_with_ai(
                     yield f"\x00ERP_DATA:{json.dumps(erp_data_payload, ensure_ascii=False)}"
                     erp_data_pushed = True
                     logger.ai("ToolCall", f"已推送 erp.data 事件 | rows={len(parsed.rows)} | total={parsed.total}")
+                    trace_service.log_erp_data(
+                        run_id,
+                        table_name=table_name_for_rag,
+                        rows=len(parsed.rows),
+                        total=parsed.total,
+                        page_index=parsed.page_index,
+                        page_size=parsed.page_size,
+                    )
 
                     t_rag = start_timer()
                     rag_context = build_context(parsed, request["message"], field_labels, model_id=model_name, system_used_tokens=_tokens.get("input_tokens", 0))
