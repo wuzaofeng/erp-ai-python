@@ -72,10 +72,10 @@ def _load_from_traces(conversation_id: str) -> Optional[LastQueryState]:
                                 pass
                     state = LastQueryState(
                         table_name=inp.get("tableName", ""),
-                        page_size=inp.get("pageSize", 20),
-                        page_index=inp.get("pageIndex", 1) or 1,
+                        page_size=int(inp.get("pageSize", 20) or 20),
+                        page_index=int(inp.get("pageIndex", 1) or 1),
                         filters=inp.get("filters", []),
-                        total=total,
+                        total=int(total or 0),
                     )
                     _store[conversation_id] = state  # 回填内存
                     return state
