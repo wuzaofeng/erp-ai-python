@@ -47,6 +47,8 @@ def init_db() -> None:
         existing = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}
         if "conversation_id" not in existing:
             conn.execute("ALTER TABLE conversations ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''")
+        if "verified" not in existing:
+            conn.execute("ALTER TABLE conversations ADD COLUMN verified INTEGER NOT NULL DEFAULT 0")
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_conv_user_time
             ON conversations(user_id, created_at)

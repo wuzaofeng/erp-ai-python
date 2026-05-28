@@ -552,9 +552,12 @@ async def chat_with_ai(
     final_answer = "".join(accumulated_answer)
     if final_answer:
         trace_service.log_agent(run_id, "FinalAnswer", input_data=None, output_data=final_answer)
-    if final_answer:
-        append_assistant_message(user_id, final_answer, conv_id)
-        logger.ai("Memory", f"AI 回复已保存到 Memory | userId={user_id} | 字符={len(final_answer)}")
+    # 有工具报错时不写 Memory，防止错误内容污染后续对话
+    if final_answer and not tool_errors:
+        append_assistant_message(user_id, final_answer, conv_id, verified=erp_data_pushed)
+        logger.ai("Memory", f"AI 回复已保存到 Memory | userId={user_id} | 字符={len(final_answer)} | verified={erp_data_pushed}")
+    elif final_answer and tool_errors:
+        logger.warn("Memory", f"AI 回复因工具报错未写入 Memory | userId={user_id} | errors={tool_errors}")
 
     for call_info in called_tool_args:
         if call_info["toolName"] == "query_erp_list" and call_info["args"].get("tableName"):
