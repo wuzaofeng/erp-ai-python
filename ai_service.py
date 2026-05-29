@@ -357,7 +357,10 @@ async def chat_with_ai(
                             messages.append(ToolMessage(content=err_msg, tool_call_id=tool_call_id))
                             continue
 
-            yield f"🔍 正在查询 ERP 数据（{tool_name}）...\n"
+            if tool_name == "web_search":
+                yield f"🌐 正在联网搜索...\n"
+            else:
+                yield f"🔍 正在查询 ERP 数据（{tool_name}）...\n"
             t_tool = start_timer()
 
             try:
