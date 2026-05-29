@@ -251,6 +251,19 @@ class AgentTraceService:
             duration_ms=duration_ms,
         )
 
+    def log_web_search(self, run_id: str, query: str, answer: str, citations: list[str], duration_ms: Optional[int] = None) -> None:
+        trace = self._traces.get(run_id)
+        if not trace:
+            return
+        trace.add_step(
+            StepType.TOOL,
+            "WebSearch [perplexity/sonar]",
+            input_data={"query": query},
+            output_data={"answer": answer[:500] if answer else "", "citations": citations},
+            metadata={"citation_count": len(citations), "model": "perplexity/sonar"},
+            duration_ms=duration_ms,
+        )
+
     def log_table_search(self, run_id: str, keyword: str, matched_count: int, tables: list[dict], cache_hit: bool, duration_ms: Optional[int] = None) -> None:
         trace = self._traces.get(run_id)
         if not trace:

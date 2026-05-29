@@ -181,7 +181,8 @@ async def chat_with_ai(
 
     # ---- 3. 创建工具 ----
     erp_tools = create_all_tools(erp_cookie, erp_authorization, user_id, run_id,
-                                  enable_web_search=request.get("enable_web_search", False))
+                                  enable_web_search=request.get("enable_web_search", False),
+                                  openrouter_key=openrouter_key)
     tool_map: dict[str, Any] = {t.name: t for t in erp_tools}
 
     # ---- 4. 构造初始消息 ----
@@ -195,6 +196,7 @@ async def chat_with_ai(
         nav_index=request.get("navIndex"),
         query_state=current_query_state,
         enable_web_search=request.get("enable_web_search", False),
+        user_city=request.get("user_city", ""),
     )
     trace_service.set_system_prompt(run_id, system_prompt_text)
     # 刷新时强制重复上次查询，不走翻页逻辑
@@ -226,6 +228,7 @@ async def chat_with_ai(
     used_model = model_name
     tools_were_called = False
     query_erp_called = False   # 是否真正调用了 query_erp_list 或 search_erp_global
+    web_search_called = False  # 是否调用了 web_search（联网搜索，不属于 ERP 查询，不触发强制提示）
     erp_data_pushed = False    # 是否有工具成功返回了 ERP 数据
     tool_errors: list[str] = []  # 收集工具错误信息
     accumulated_answer: list[str] = []
@@ -277,7 +280,7 @@ async def chat_with_ai(
             text = extract_text(ai_response.content)
             # 如果 AI 调用了 get_table_fields 但没有调用 query_erp_list，
             # 说明它可能在用字段元数据编造业务数据，强制要求重新查询
-            if tools_were_called and not query_erp_called and round_n < MAX_TOOL_ROUNDS:
+            if tools_were_called and not query_erp_called and not web_search_called and round_n < MAX_TOOL_ROUNDS:
                 logger.warn(
                     "LangChain",
                     f"第 {round_n} 轮：AI 只调了 get_table_fields 就给出结论，强制要求调用 query_erp_list",
@@ -384,10 +387,23 @@ async def chat_with_ai(
 
             called_tool_args.append({"toolName": tool_name, "args": tool_args})
             # search_erp_tables 已在工具内部调用 log_table_search，此处跳过避免重复记录
-            if tool_name != "search_erp_tables":
+            if tool_name == "web_search":
+                try:
+                    parsed = json.loads(raw_tool_result)
+                    trace_service.log_web_search(
+                        run_id, tool_args.get("query", ""),
+                        answer=parsed.get("answer", parsed.get("error", "")),
+                        citations=parsed.get("citations", []),
+                        duration_ms=tool_duration,
+                    )
+                except Exception:
+                    trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, duration_ms=tool_duration)
+            elif tool_name != "search_erp_tables":
                 trace_service.log_tool(run_id, tool_name, tool_args, raw_tool_result, erp_cookie=erp_cookie, erp_auth=erp_authorization, duration_ms=tool_duration)
             if tool_name in ("query_erp_list", "search_erp_global"):
                 query_erp_called = True
+            if tool_name == "web_search":
+                web_search_called = True
 
             # ---- trigger_actions 工具：直接转发给前端 ----
             if tool_name == "trigger_actions" and raw_tool_result.startswith("\x00ACTION_DATA:"):
@@ -540,15 +556,27 @@ async def chat_with_ai(
             yield f"\x00TRACE_SUMMARY:{json.dumps(trace_service.get_summary(run_id, slim=True), ensure_ascii=False)}"
             return
 
-        messages.append(HumanMessage(content=(
-            "原始数据表格已通过 erp.data 事件直接推送给前端展示，用户已经可以看到完整的数据表格。\n\n"
-            "现在请你只做【文字分析摘要】，规则如下：\n"
-            "1. 【禁止输出表格】不要用 Markdown 表格重复展示数据，前端已有原生表格\n"
-            "2. 用 1~3 句话说明查询结果的关键信息（如总数、范围、特殊情况等）\n"
-            "3. 如有需要，用 **加粗** 突出关键数字或结论\n"
-            "4. 如有异常（空结果、条件过严等）给出建议\n"
-            "5. 所有数字、编码、名称必须来自工具返回的真实数据，禁止编造\n"
-        )))
+        if web_search_called and not erp_data_pushed:
+            # 纯联网搜索场景：无前端表格，允许 LLM 完整展示搜索内容
+            messages.append(HumanMessage(content=(
+                "请根据上方 web_search 工具返回的内容（answer 字段）直接回答用户的问题。\n\n"
+                "规则：\n"
+                "1. 完整展示与问题相关的内容，不要压缩或省略关键信息\n"
+                "2. 使用 Markdown 格式（列表、加粗、标题等）让内容清晰易读\n"
+                "3. 若工具返回了 citations 字段，在回答末尾列出信息来源链接\n"
+                "4. 内容必须来自工具返回的真实数据，禁止添加未经搜索的内容\n"
+            )))
+        else:
+            # ERP 查询场景：数据已推送前端原生表格，只需文字摘要
+            messages.append(HumanMessage(content=(
+                "原始数据表格已通过 erp.data 事件直接推送给前端展示，用户已经可以看到完整的数据表格。\n\n"
+                "现在请你只做【文字分析摘要】，规则如下：\n"
+                "1. 【禁止输出表格】不要用 Markdown 表格重复展示数据，前端已有原生表格\n"
+                "2. 用 1~3 句话说明查询结果的关键信息（如总数、范围、特殊情况等）\n"
+                "3. 如有需要，用 **加粗** 突出关键数字或结论\n"
+                "4. 如有异常（空结果、条件过严等）给出建议\n"
+                "5. 所有数字、编码、名称必须来自工具返回的真实数据，禁止编造\n"
+            )))
 
         t2 = start_timer()
         logger.ai("LangChain", f"→ 最终流式输出 | 模型={used_model}")

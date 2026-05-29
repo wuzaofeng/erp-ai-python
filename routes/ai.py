@@ -192,6 +192,14 @@ async def chat_endpoint(
                 "actions": actions,
             }, ensure_ascii=False) + "\n\n"
 
+        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() \
+                    or request.headers.get("x-real-ip", "") \
+                    or (request.client.host if request.client else "")
+        user_city = ""
+        if body.enableWebSearch and client_ip:
+            from geo_service import get_city_by_ip
+            user_city = await get_city_by_ip(client_ip)
+
         request_dict = {
             "message": body.message,
             "pageContext": body.pageContext,
@@ -202,6 +210,7 @@ async def chat_endpoint(
             "conversation_id": body.conversationId or "",
             "is_refresh": body.isRefresh,
             "enable_web_search": body.enableWebSearch,
+            "user_city": user_city,
         }
 
         # ---- AgentOrchestrator：统一入口，内部处理 simple/complex/write 分流 ----

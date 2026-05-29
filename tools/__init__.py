@@ -93,11 +93,18 @@ WEB_SEARCH_TOOL = ToolMeta(
 )
 
 
-def create_all_tools(erp_cookie: str, erp_auth: str, user_id: str = "", run_id: str = "", enable_web_search: bool = False) -> list:
+def create_all_tools(
+    erp_cookie: str,
+    erp_auth: str,
+    user_id: str = "",
+    run_id: str = "",
+    enable_web_search: bool = False,
+    openrouter_key: str = "",
+) -> list:
     """创建工具实例列表。enable_web_search=True 时追加联网搜索工具"""
     tools = [meta.factory(erp_cookie, erp_auth, user_id, run_id) for meta in TOOL_REGISTRY]
     if enable_web_search:
-        tools.append(WEB_SEARCH_TOOL.factory(erp_cookie, erp_auth, user_id, run_id))
+        tools.append(create_web_search_tool(run_id=run_id, openrouter_key=openrouter_key))
     return tools
 
 

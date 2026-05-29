@@ -196,6 +196,7 @@ def build_system_prompt(
     nav_index: Optional[str] = None,
     query_state=None,  # LastQueryState | None
     enable_web_search: bool = False,
+    user_city: str = "",
 ) -> str:
     """
     构造完整的 System Prompt
@@ -204,6 +205,8 @@ def build_system_prompt(
     capability_desc = get_capability_desc()
     if enable_web_search:
         capability_desc += "\n- 可搜索互联网公开信息（天气、汇率、行业资讯、政策法规等），使用 web_search 工具"
+        if user_city:
+            capability_desc += f"\n- 用户当前所在城市：**{user_city}**（查询天气等地理相关信息时默认使用此城市）"
     skill_section = ""
     if skill:
         skill_section = f"\n## 当前技能/业务规则（优先级最高，必须严格遵守）\n{skill}\n"
@@ -260,15 +263,19 @@ def build_system_prompt(
 
     web_search_rule = (
         "6. 优先查询 ERP 内部数据；对于无法从 ERP 获取的外部信息（天气/汇率/市场行情/政策等），"
-        "使用 web_search 工具搜索，并在回答中注明信息来源。混合场景：先查 ERP，再用 web_search 补充外部参照。"
+        "使用 web_search 工具搜索，并在回答中注明信息来源。适用范围：天气、汇率、体育赛事、新闻、行业动态、政策法规等一切互联网公开信息。混合场景：先查 ERP，再用 web_search 补充外部参照。"
     ) if enable_web_search else "6. 只回答与 ERP 业务相关的问题，拒绝与 ERP 无关的请求"
     behavior_rules = BEHAVIOR_RULES.replace(
         "6. 只回答与 ERP 业务相关的问题，拒绝与 ERP 无关的请求",
         web_search_rule,
     )
 
+    from datetime import date
+    today = date.today().strftime("%Y年%m月%d日")
+
     return (
         f"你是 ERP 系统的智能数据助手，帮助用户通过自然语言快速检索业务数据。\n\n"
+        f"## 当前日期\n{today}\n\n"
         f"## 能力说明\n{capability_desc}\n\n"
         f"## 当前页面上下文\n用户正在浏览：{page_context or '未知页面'}\n"
         f"{skill_section}"
