@@ -194,6 +194,7 @@ async def chat_with_ai(
         request.get("pageContext"), resolved_skill, preference_prompt, knowledge_prompt,
         nav_index=request.get("navIndex"),
         query_state=current_query_state,
+        enable_web_search=request.get("enable_web_search", False),
     )
     trace_service.set_system_prompt(run_id, system_prompt_text)
     # 刷新时强制重复上次查询，不走翻页逻辑
