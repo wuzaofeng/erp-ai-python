@@ -39,6 +39,7 @@ DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini")
 MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "3"))
 
 MODEL_FALLBACKS = [
+    "deepseek/deepseek-chat",
     "openai/gpt-4o-mini",
     "openai/gpt-4o",
     "anthropic/claude-3-5-sonnet-20241022",

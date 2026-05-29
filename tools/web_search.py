@@ -9,9 +9,8 @@ from langchain_core.tools import StructuredTool
 from logger import logger, start_timer
 
 WEB_SEARCH_DESCRIPTION = (
-    "搜索互联网上的任何公开信息，包括但不限于：天气预报、汇率、体育赛事比分/赛程、"
-    "新闻资讯、行业动态、政策法规、公司背景、产品价格等实时或公开数据。"
-    "只要信息来自互联网而非公司内部 ERP 系统，都应调用此工具。"
+    "搜索互联网上的任何公开信息。"
+    "凡是答案不在公司 ERP 内部系统中的问题，一律调用此工具，不受话题类型限制。"
     "不适用于查询公司内部 ERP 业务数据（订单/库存/采购等），内部数据请使用 query_erp_list。"
 )
 
@@ -58,7 +57,7 @@ async def _do_search_async(query: str, openrouter_key: str) -> str:
             "X-Title": "ERP AI Assistant",
             "Content-Type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 json=payload,
