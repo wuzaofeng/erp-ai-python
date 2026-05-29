@@ -20,6 +20,28 @@ class WebSearchInput(BaseModel):
     query: str = Field(description="搜索关键词，尽量用中文描述，如'深圳今天天气'、'美元兑人民币汇率'")
 
 
+def _extract_citations(data: dict, answer: str) -> list[str]:
+    """从 OpenRouter/Perplexity 响应中提取引用链接，多路径兜底"""
+    # 路径1：顶层 citations（Perplexity 原生格式）
+    cites = data.get("citations") or []
+    if cites:
+        return [c if isinstance(c, str) else c.get("url", str(c)) for c in cites]
+
+    # 路径2：choices[0].message.citations（部分 OpenRouter 版本）
+    try:
+        cites = data["choices"][0]["message"].get("citations") or []
+        if cites:
+            return [c if isinstance(c, str) else c.get("url", str(c)) for c in cites]
+    except (KeyError, IndexError, TypeError):
+        pass
+
+    # 路径3：从回答文本中提取裸 URL（兜底）
+    import re
+    urls = re.findall(r'https?://[^\s\)\]\>\"\']+', answer)
+    seen: dict[str, bool] = {}
+    return [u for u in urls if not seen.get(u) and not seen.update({u: True})]  # type: ignore[func-returns-value]
+
+
 async def _do_search_async(query: str, openrouter_key: str) -> str:
     """调用 Perplexity Sonar（via OpenRouter）执行联网搜索，返回 JSON 字符串"""
     if not openrouter_key:
@@ -45,7 +67,8 @@ async def _do_search_async(query: str, openrouter_key: str) -> str:
         resp.raise_for_status()
         data = resp.json()
         answer = data["choices"][0]["message"]["content"]
-        citations = data.get("citations", [])
+        citations = _extract_citations(data, answer)
+        logger.info("WebSearch", f"citations={len(citations)} 条 | keys={list(data.keys())}")
         return json.dumps({"answer": answer, "citations": citations}, ensure_ascii=False)
     except Exception as e:
         logger.error("WebSearch", f"Perplexity 搜索失败 | query={query} | {e}")
