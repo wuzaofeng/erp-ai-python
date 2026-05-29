@@ -49,7 +49,7 @@ async def _do_search_async(query: str, openrouter_key: str) -> str:
     try:
         import httpx
         payload = {
-            "model": "perplexity/sonar",
+            "model": "perplexity/sonar-pro",
             "messages": [{"role": "user", "content": query}],
         }
         headers = {

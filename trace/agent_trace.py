@@ -257,10 +257,10 @@ class AgentTraceService:
             return
         trace.add_step(
             StepType.TOOL,
-            "WebSearch [perplexity/sonar]",
+            "WebSearch [perplexity/sonar-pro]",
             input_data={"query": query},
             output_data={"answer": answer[:500] if answer else "", "citations": citations},
-            metadata={"citation_count": len(citations), "model": "perplexity/sonar"},
+            metadata={"citation_count": len(citations), "model": "perplexity/sonar-pro"},
             duration_ms=duration_ms,
         )
 
