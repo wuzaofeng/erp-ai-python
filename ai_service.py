@@ -180,7 +180,8 @@ async def chat_with_ai(
     )
 
     # ---- 3. 创建工具 ----
-    erp_tools = create_all_tools(erp_cookie, erp_authorization, user_id, run_id)
+    erp_tools = create_all_tools(erp_cookie, erp_authorization, user_id, run_id,
+                                  enable_web_search=request.get("enable_web_search", False))
     tool_map: dict[str, Any] = {t.name: t for t in erp_tools}
 
     # ---- 4. 构造初始消息 ----

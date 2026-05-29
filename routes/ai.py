@@ -42,6 +42,7 @@ class ChatRequestBody(BaseModel):
     navIndex: Optional[str] = Field(default=None, max_length=5000, description="前端菜单导航索引")
     conversationId: Optional[str] = Field(default=None, max_length=64, description="前端会话 ID，用于串联同一会话的多条 trace")
     isRefresh: bool = False
+    enableWebSearch: bool = False
 
 
 class SaveKeyRequest(BaseModel):
@@ -200,6 +201,7 @@ async def chat_endpoint(
             "navIndex": body.navIndex,
             "conversation_id": body.conversationId or "",
             "is_refresh": body.isRefresh,
+            "enable_web_search": body.enableWebSearch,
         }
 
         # ---- AgentOrchestrator：统一入口，内部处理 simple/complex/write 分流 ----

@@ -22,6 +22,7 @@ from tools.table_fields import create_table_fields_tool, TABLE_FIELDS_DESCRIPTIO
 from tools.global_search import create_global_search_tool, GLOBAL_SEARCH_DESCRIPTION
 from tools.trigger_actions import create_trigger_actions_tool, TRIGGER_ACTIONS_DESCRIPTION
 from tools.search_tables import create_search_tables_tool, SEARCH_TABLES_DESCRIPTION
+from tools.web_search import create_web_search_tool, WEB_SEARCH_DESCRIPTION
 
 
 # ===================== 工具元数据注册表 =====================
@@ -83,9 +84,21 @@ TOOL_REGISTRY: list[ToolMeta] = [
 ]
 
 
-def create_all_tools(erp_cookie: str, erp_auth: str, user_id: str = "", run_id: str = "") -> list:
-    """创建所有 ERP 工具实例，AI 会根据用户意图自动选择调用哪个工具"""
-    return [meta.factory(erp_cookie, erp_auth, user_id, run_id) for meta in TOOL_REGISTRY]
+WEB_SEARCH_TOOL = ToolMeta(
+    name="web_search",
+    description=WEB_SEARCH_DESCRIPTION,
+    category="other",
+    auto_prompt=True,
+    factory=lambda cookie, auth, uid="", run_id="": create_web_search_tool(run_id),
+)
+
+
+def create_all_tools(erp_cookie: str, erp_auth: str, user_id: str = "", run_id: str = "", enable_web_search: bool = False) -> list:
+    """创建工具实例列表。enable_web_search=True 时追加联网搜索工具"""
+    tools = [meta.factory(erp_cookie, erp_auth, user_id, run_id) for meta in TOOL_REGISTRY]
+    if enable_web_search:
+        tools.append(WEB_SEARCH_TOOL.factory(erp_cookie, erp_auth, user_id, run_id))
+    return tools
 
 
 def get_auto_prompt_descriptions() -> str:
